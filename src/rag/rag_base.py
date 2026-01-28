@@ -33,18 +33,18 @@ except ImportError:
         RAG_AVAILABLE = False
         logger.warning("RAG core modules not found. Some features may be disabled.")
 
-# Finnhub 클라이언트 임포트
+# Stock API 클라이언트 임포트
 try:
-    from data.finnhub_client import get_finnhub_client
+    from data.stock_api_client import get_stock_api_client
 
-    FINNHUB_AVAILABLE = True
+    STOCK_API_AVAILABLE = True
 except ImportError:
     try:
-        from src.data.finnhub_client import get_finnhub_client
+        from src.data.stock_api_client import get_stock_api_client
 
-        FINNHUB_AVAILABLE = True
+        STOCK_API_AVAILABLE = True
     except ImportError:
-        FINNHUB_AVAILABLE = False
+        STOCK_API_AVAILABLE = False
 
 # 환율 클라이언트 임포트
 try:
@@ -79,15 +79,15 @@ class RAGBase:
             raise ValueError("SUPABASE_URL과 SUPABASE_KEY 환경 변수가 필요합니다.")
         self.supabase: Client = create_client(supabase_url, supabase_key)
 
-        # 3. Finnhub 초기화
+        # 3. Stock API 초기화
         self.finnhub = None
-        if FINNHUB_AVAILABLE:
+        if STOCK_API_AVAILABLE:
             try:
-                self.finnhub = get_finnhub_client()
+                self.finnhub = get_stock_api_client()
                 if not self.finnhub.api_key:
                     self.finnhub = None
             except Exception as e:
-                logger.warning(f"Finnhub init failed: {e}")
+                logger.warning(f"Stock API init failed: {e}")
 
         # 4. RAG 엔진 초기화
         self.vector_store = None

@@ -1,6 +1,6 @@
 """
-Finnhub API Client - 실시간 주가, 뉴스, SEC 공시 데이터
-https://finnhub.io
+Stock API Client - 실시간 주가, 뉴스, SEC 공시 데이터
+Finnhub API + yfinance fallback 지원
 """
 
 import os
@@ -15,14 +15,15 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-class FinnhubClient:
+class StockAPIClient:
     """
-    Finnhub API 클라이언트
+    Stock API 클라이언트 (Finnhub + yfinance)
     - 실시간/과거 주가
     - 회사 뉴스
     - SEC 공시
     - 기업 프로필
     - 재무제표
+    - yfinance fallback 지원
     """
 
     BASE_URL = "https://finnhub.io/api/v1"
@@ -81,11 +82,13 @@ class FinnhubClient:
         """
         캔들 차트 데이터 (OHLCV)
         resolution: 1=1분, 5=5분, D=일봉, W=주봉, M=월봉
+        Finnhub 실패 시 yfinance로 fallback
         """
         to_date = to_date or datetime.now()
         from_date = from_date or (to_date - timedelta(days=30))
 
-        return self._request(
+        # Finnhub 시도
+        result = self._request(
             "stock/candle",
             {
                 "symbol": symbol.upper(),
@@ -94,6 +97,38 @@ class FinnhubClient:
                 "to": int(to_date.timestamp()),
             },
         )
+        
+        # Finnhub 성공 시 반환
+        if result and result.get("s") == "ok":
+            return result
+        
+        # yfinance fallback
+        try:
+            import yfinance as yf
+            
+            # resolution을 yfinance period로 변환
+            days = (to_date - from_date).days
+            period = f"{days}d" if days <= 60 else "3mo"
+            
+            ticker = yf.Ticker(symbol.upper())
+            hist = ticker.history(period=period)
+            
+            if hist.empty:
+                return {"error": "주가 데이터를 가져오지 못했습니다."}
+            
+            # Finnhub 형식으로 변환 (c, h, l, o, v, t)
+            return {
+                "s": "ok",
+                "c": hist["Close"].tolist(),
+                "h": hist["High"].tolist(),
+                "l": hist["Low"].tolist(),
+                "o": hist["Open"].tolist(),
+                "v": hist["Volume"].tolist(),
+                "t": [int(d.timestamp()) for d in hist.index],
+            }
+        except Exception as e:
+            logger.error(f"yfinance fallback failed: {e}")
+            return {"error": "주가 데이터를 가져오지 못했습니다."}
 
     # ========== 기업 정보 ==========
 
@@ -189,8 +224,36 @@ class FinnhubClient:
         return result if isinstance(result, list) else []
 
     def get_price_target(self, symbol: str) -> Dict:
-        """목표 주가 (애널리스트 컨센서스)"""
-        return self._request("stock/price-target", {"symbol": symbol.upper()})
+        """
+        목표 주가 (애널리스트 컨센서스)
+        Finnhub 실패 시 yfinance로 fallback
+        """
+        # Finnhub 시도
+        result = self._request("stock/price-target", {"symbol": symbol.upper()})
+        
+        # Finnhub 성공 시 반환
+        if result and "error" not in result:
+            return result
+        
+        # yfinance fallback
+        try:
+            import yfinance as yf
+            
+            ticker = yf.Ticker(symbol.upper())
+            info = ticker.info
+            
+            return {
+                "symbol": symbol.upper(),
+                "targetHigh": info.get("targetHighPrice"),
+                "targetLow": info.get("targetLowPrice"),
+                "targetMean": info.get("targetMeanPrice"),
+                "targetMedian": info.get("targetMedianPrice"),
+                "lastUpdated": datetime.now().strftime("%Y-%m-%d"),
+                "numberOfAnalysts": info.get("numberOfAnalystOpinions", 0),
+            }
+        except Exception as e:
+            logger.error(f"yfinance fallback failed: {e}")
+            return {"error": "목표주가 데이터를 가져오지 못했습니다."}
 
     def get_earnings_surprises(self, symbol: str) -> List[Dict]:
         """실적 서프라이즈 데이터"""
@@ -244,18 +307,23 @@ class FinnhubClient:
 _client = None
 
 
-def get_finnhub_client() -> FinnhubClient:
-    """Get or create Finnhub client singleton"""
+def get_stock_api_client() -> StockAPIClient:
+    """Get or create Stock API client singleton"""
     global _client
     if _client is None:
-        _client = FinnhubClient()
+        _client = StockAPIClient()
     return _client
 
 
-if __name__ == "__main__":
-    print("🔄 Finnhub 클라이언트 테스트...")
+# 하위 호환성을 위한 별칭
+FinnhubClient = StockAPIClient
+get_finnhub_client = get_stock_api_client
 
-    client = FinnhubClient()
+
+if __name__ == "__main__":
+    print("🔄 Stock API 클라이언트 테스트...")
+
+    client = StockAPIClient()
 
     if client.api_key:
         print("✅ API 키 설정됨")

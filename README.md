@@ -55,7 +55,7 @@ SKN22-3rd-4Team/
 ├── models/
 │   └── settings.py           # AI Model Configs
 ├── src/
-│   ├── data/                 # Finnhub & Supabase Clients
+│   ├── data/                 # Stock API (Finnhub + yfinance) & Supabase Clients
 │   ├── rag/                  # Analyst Chat, Report Gen, GraphRAG
 │   ├── ui/                   # Streamlit Pages
 │   └── utils/
@@ -100,7 +100,10 @@ streamlit run app.py
 | :--- | :--- | :--- |
 | **Supabase** | 재무제표 DB & Vector Store | ✅ 연동 완료 |
 | **Finnhub** | 실시간 주가, 뉴스, 재무 지표 | ✅ 연동 완료 |
+| **yfinance** | 주가 추이, 목표주가 (Finnhub fallback) | ✅ 연동 완료 |
 | **OpenAI** | LLM (Chat, Report, SQL) | ✅ 연동 완료 |
+
+> **Note**: Finnhub 무료 플랜에서 제한되는 `stock/candle`(주가 추이), `stock/price-target`(목표주가)은 yfinance로 자동 fallback됩니다.
 
 ---
 

@@ -28,4 +28,5 @@ matplotlib>=3.8.2
 plotly>=5.18.0
 reportlab>=4.0.0
 finnhub-python>=2.4.19
+yfinance>=0.2.36
 pytz>=2024.1
