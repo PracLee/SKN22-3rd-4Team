@@ -11,17 +11,26 @@ from pathlib import Path
 import os
 import re
 from io import BytesIO
+from typing import Optional
 
 
-def create_pdf(markdown_text: str) -> bytes:
+from reportlab.lib.utils import ImageReader
+
+
+def create_pdf(markdown_text: str, chart_image: Optional[BytesIO] = None) -> bytes:
     """Convert Markdown text to PDF using ReportLab with enhanced styling
 
+    Args:
+        markdown_text: Markdown content
+        chart_image: Optional BytesIO object containing chart image (PNG/JPEG)
+
     Features:
-    - Bold text support (**text**)
-    - Heading hierarchy with proper sizing
-    - Colored section headers
-    - Improved table styling
-    - Better spacing and readability
+        - Bold text support (**text**)
+        - Heading hierarchy with proper sizing
+        - Colored section headers
+        - Improved table styling
+        - Better spacing and readability
+        - Chart image embedding
     """
     # Get project root and fonts directory
     project_root = Path(__file__).parent.parent.parent
@@ -143,6 +152,9 @@ PDF 생성을 위해:
     lines = markdown_text.split("\n")
     i = 0
 
+    # Chart Render Flag to ensure it is drawn once
+    chart_drawn = False
+
     def new_page():
         nonlocal y_position
         c.showPage()
@@ -179,8 +191,37 @@ PDF 생성을 위해:
 
         c.setFillColor(colors.black)  # Reset color
 
+    def draw_current_chart():
+        nonlocal y_position, chart_drawn
+        if chart_image and not chart_drawn:
+            try:
+                img = ImageReader(chart_image)
+                img_width, img_height = img.getSize()
+                aspect = img_height / float(img_width)
+
+                # 꽉 찬 너비로 설정
+                display_width = max_width
+                display_height = display_width * aspect
+
+                # 페이지 공간 확인
+                if y_position - display_height < 1 * inch:
+                    new_page()
+
+                c.drawImage(
+                    img,
+                    margin_left,
+                    y_position - display_height,
+                    width=display_width,
+                    height=display_height,
+                    mask="auto",
+                )
+                y_position -= display_height + 20
+                chart_drawn = True
+            except Exception as e:
+                print(f"Chart image render failed: {e}")
+
     def draw_heading(text: str, level: int, y_pos: float) -> float:
-        """Draw heading with proper styling"""
+        """Draw heading with proper styling and word wrap support"""
         nonlocal y_position
 
         level_map = {1: "h1", 2: "h2", 3: "h3", 4: "h4"}
@@ -198,26 +239,46 @@ PDF 생성을 위해:
             new_page()
             y_pos = y_position
 
-        # Draw underline for H1 and H2
+        # Remove markdown heading markers and escape HTML
+        clean_text = re.sub(r"^#{1,6}\s+", "", text)
+        escaped_text = (
+            clean_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+
+        # Create paragraph style for heading with word wrap
+        heading_style = ParagraphStyle(
+            name=f"Heading{level}Style",
+            fontName=korean_font_bold,
+            fontSize=font_size,
+            leading=line_height,
+            textColor=color,
+            alignment=TA_CENTER if level == 1 else TA_LEFT,
+        )
+
+        # Use Paragraph for automatic word wrapping
+        p = Paragraph(escaped_text, heading_style)
+        p_width, p_height = p.wrap(max_width, height)
+
+        # Check if we need a new page
+        if y_pos - p_height < 1 * inch:
+            new_page()
+            y_pos = y_position
+
+        # Draw underline for H1 and H2 (after paragraph to account for height)
+        underline_y = y_pos - p_height - 3
         if level == 1:
             c.setStrokeColor(COLORS["h1"])
             c.setLineWidth(2)
-            c.line(margin_left, y_pos - 5, margin_right, y_pos - 5)
+            c.line(margin_left, underline_y, margin_right, underline_y)
         elif level == 2:
             c.setStrokeColor(COLORS["h2"])
             c.setLineWidth(1)
-            c.line(margin_left, y_pos - 3, margin_left + 200, y_pos - 3)
+            c.line(margin_left, underline_y, margin_left + 200, underline_y)
 
-        c.setFont(korean_font_bold, font_size)
-        c.setFillColor(color)
+        # Draw the heading paragraph
+        p.drawOn(c, margin_left, y_pos - p_height)
 
-        # Remove markdown heading markers
-        clean_text = re.sub(r"^#{1,6}\s+", "", text)
-        c.drawString(margin_left, y_pos, clean_text)
-
-        c.setFillColor(colors.black)
-
-        return y_pos - line_height - (8 if level <= 2 else 4)
+        return y_pos - p_height - line_height - (8 if level <= 2 else 4)
 
     while i < len(lines):
         line = lines[i].strip()
@@ -381,14 +442,46 @@ PDF 생성을 위해:
             continue
         elif line.startswith("### "):
             y_position = draw_heading(line, 3, y_position)
+            draw_current_chart()
             i += 1
             continue
         elif line.startswith("## "):
             y_position = draw_heading(line, 2, y_position)
+            draw_current_chart()
             i += 1
             continue
-        elif line.startswith("# "):
+        if line.startswith("# "):
             y_position = draw_heading(line, 1, y_position)
+            draw_current_chart()
+
+            # 차트 이미지가 있고 아직 그리지 않았다면 제목 다음에 삽입
+            if chart_image and not chart_drawn:
+                try:
+                    img = ImageReader(chart_image)
+                    img_width, img_height = img.getSize()
+                    aspect = img_height / float(img_width)
+
+                    # 꽉 찬 너비로 설정
+                    display_width = max_width
+                    display_height = display_width * aspect
+
+                    # 페이지 공간 확인
+                    if y_position - display_height < 1 * inch:
+                        new_page()
+
+                    c.drawImage(
+                        img,
+                        margin_left,
+                        y_position - display_height,
+                        width=display_width,
+                        height=display_height,
+                        mask="auto",
+                    )
+                    y_position -= display_height + 20
+                    chart_drawn = True
+                except Exception as e:
+                    print(f"Chart image render failed: {e}")
+
             i += 1
             continue
 
@@ -506,6 +599,12 @@ PDF 생성을 위해:
         p.drawOn(c, margin_left, y_position - p_h + 10)
         y_position -= p_h + 2
         i += 1
+
+    # Fallback: Draw chart if not already drawn
+    draw_current_chart()
+
+    # Fallback: Draw chart if not already drawn
+    draw_current_chart()
 
     c.save()
     pdf_bytes = buffer.getvalue()

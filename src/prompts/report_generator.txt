@@ -67,7 +67,11 @@
 ## 🔄 비교 분석 보고서 구조 (Comparison Report Format)
 복수의 티커가 입력된 경우, 아래 구조로 **비교 분석 보고서**를 작성하십시오.
 
-### ⚔️ [Company A] vs [Company B] (vs [Company C]...) 비교 분석
+### ⚔️ [TICKER1] vs [TICKER2] vs [TICKER3] 비교 분석
+
+> **제목 작성 규칙**: 제목에는 회사 전체 이름이 아닌 **티커 심볼만** 사용하십시오.
+> - ✅ 올바른 예: "AAPL vs MSFT vs GOOGL 비교 분석"
+> - ❌ 잘못된 예: "Apple Inc. (AAPL) vs Microsoft Corporation (MSFT) vs Alphabet Inc. (GOOGL) 비교 분석"
 
 **분석 대상**: [티커 리스트]
 **비교 일시**: [YYYY-MM-DD HH:MM]

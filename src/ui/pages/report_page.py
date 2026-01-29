@@ -3,8 +3,41 @@ Investment Report Generation Page
 """
 
 import streamlit as st
-import streamlit as st
 from utils.pdf_utils import create_pdf
+
+
+def render_stock_chart(tickers: list):
+    """Render stock price chart for given tickers using yfinance"""
+    try:
+        import yfinance as yf
+        import pandas as pd
+        from datetime import datetime, timedelta
+
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=90)  # 3 months
+
+        # Create chart data
+        chart_data = {}
+        for ticker in tickers:
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(start=start_date, end=end_date)
+                if not hist.empty:
+                    chart_data[ticker] = hist["Close"]
+            except Exception:
+                continue
+
+        if chart_data:
+            df = pd.DataFrame(chart_data)
+            st.subheader("📈 주가 추이 (최근 3개월)")
+            st.line_chart(df)
+
+    except ImportError:
+        st.warning(
+            "차트를 표시하려면 yfinance 패키지가 필요합니다: `pip install yfinance`"
+        )
+    except Exception as e:
+        st.warning(f"차트 로딩 실패: {e}")
 
 
 def render():
@@ -68,16 +101,23 @@ def render():
                         report = generator.generate_comparison_report(tickers)
                         file_prefix = f"comparison_{'_'.join(tickers)}"
                 else:
+                    tickers = [tickers[0]]
                     with st.spinner(f"📊 {tickers[0]} 분석 레포트 생성 중..."):
                         report = generator.generate_report(tickers[0])
                         file_prefix = f"{tickers[0]}_analysis_report"
             else:
                 resolved_ticker = resolve_to_ticker(ticker)
+                tickers = [resolved_ticker]
                 with st.spinner(f"📊 {resolved_ticker} 분석 레포트 생성 중..."):
                     report = generator.generate_report(resolved_ticker)
                     file_prefix = f"{resolved_ticker}_analysis_report"
 
             st.markdown("---")
+
+            # 주가 차트 먼저 표시
+            render_stock_chart(tickers)
+
+            # 레포트 표시
             st.markdown(report)
 
             # Download button

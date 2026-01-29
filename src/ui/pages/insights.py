@@ -14,18 +14,11 @@ import uuid
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # 헬퍼 함수 로드
-try:
-    from ui.helpers.insights_helper import (
-        get_suggested_questions,
-        render_disclaimer,
-        render_page_css,
-    )
-except ImportError:
-    from src.ui.helpers.insights_helper import (
-        get_suggested_questions,
-        render_disclaimer,
-        render_page_css,
-    )
+from ui.helpers.insights_helper import (
+    get_suggested_questions,
+    render_disclaimer,
+    render_page_css,
+)
 
 # ChatConnector 로드 로직을 render() 내부로 이동하여 Lazy Loading 적용
 
@@ -35,20 +28,12 @@ def render():
 
     # Lazy Load ChatConnector
     try:
-        try:
-            from core.chat_connector import (
-                ChatConnector,
-                ChatRequest,
-                get_chat_connector,
-            )
-            from core.input_validator import ThreatLevel
-        except ImportError:
-            from src.core.chat_connector import (
-                ChatConnector,
-                ChatRequest,
-                get_chat_connector,
-            )
-            from src.core.input_validator import ThreatLevel
+        from core.chat_connector import (
+            ChatConnector,
+            ChatRequest,
+            get_chat_connector,
+        )
+        from core.input_validator import ThreatLevel
 
         # Imports successful
         render_chatbot_secure(
@@ -115,7 +100,7 @@ def render_chatbot_secure(ChatConnector, ChatRequest, get_chat_connector, Threat
 
     # Chat History Container
     if st.session_state.chat_history:
-        chat_container = st.container(height=400)
+        chat_container = st.container(height=800)
         with chat_container:
             for i, msg in enumerate(st.session_state.chat_history):
                 with st.chat_message(msg["role"]):
@@ -131,21 +116,66 @@ def render_chatbot_secure(ChatConnector, ChatRequest, get_chat_connector, Threat
                                 "⏱️ 요청 제한에 도달했습니다. 잠시 후 다시 시도하세요."
                             )
 
-                    # Chart data
+                    # --- Chart Rendering Logic ---
+                    chart_rendered = False
+
+                    # 1. Tool Call로 받은 차트 데이터 우선 렌더링
                     if msg.get("chart_data"):
                         chart_data = msg["chart_data"]
                         if "c" in chart_data and "t" in chart_data:
-                            ticker = chart_data.get("ticker", "Stock")
-                            closes = chart_data["c"]
-                            timestamps = chart_data["t"]
-                            dates = [datetime.fromtimestamp(t) for t in timestamps]
+                            try:
+                                ticker = chart_data.get("ticker", "Stock")
+                                closes = chart_data["c"]
+                                timestamps = chart_data["t"]
+                                dates = [datetime.fromtimestamp(t) for t in timestamps]
 
-                            df = pd.DataFrame({"Date": dates, "Price": closes})
-                            df.set_index("Date", inplace=True)
+                                df = pd.DataFrame({"Date": dates, "Price": closes})
+                                df.set_index("Date", inplace=True)
 
-                            st.subheader(f"📈 {ticker} 주가 추이")
-                            st.line_chart(df)
-                            st.caption(f"최근 {len(closes)}일/구간 데이터 ({ticker})")
+                                st.subheader(f"📈 {ticker} 주가 추이")
+                                st.line_chart(df)
+                                st.caption(
+                                    f"최근 {len(closes)}일/구간 데이터 ({ticker})"
+                                )
+                                chart_rendered = True
+                            except Exception:
+                                pass
+
+                    # 2. Tool Call 차트가 없고, 보고서/레포트 키워드가 있으면 강제 렌더링 시도
+                    if not chart_rendered:
+                        content_str = str(msg.get("content", ""))
+                        # "분석 보고서", "레포트", "종합 분석" 등이 포함된 경우
+                        if any(
+                            k in content_str
+                            for k in ["분석 보고서", "레포트", "종합 분석"]
+                        ):
+                            try:
+                                import re
+                                import yfinance as yf
+
+                                # 티커 추출 시도
+                                # 1. 괄호 안 대문자 (AAPL) - 가장 정확
+                                # 2. 티커: AAPL 형식
+                                ticker = None
+                                match = re.search(r"\(([A-Z]{1,6})\)", content_str)
+                                if match:
+                                    ticker = match.group(1)
+
+                                if ticker:
+                                    # 3개월 데이터
+                                    end_d = datetime.now()
+                                    start_d = end_d - pd.Timedelta(days=90)
+                                    stock = yf.Ticker(ticker)
+                                    hist = stock.history(start=start_d, end=end_d)
+
+                                    if not hist.empty:
+                                        st.subheader(f"📈 {ticker} 주가 추이 (3개월)")
+                                        st.line_chart(hist["Close"])
+                                        st.caption("※ 보고서 내용 기반 자동 생성 차트")
+                            except Exception:
+                                pass  # 실패 시 차트 없이 텍스트/다운로드 버튼만 표시
+
+                    # --- End Chart Rendering ---
 
                     # Downloadable report
                     if msg.get("report"):

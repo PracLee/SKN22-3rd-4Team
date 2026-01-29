@@ -57,19 +57,19 @@ class AnalystChatbot(RAGBase):
         방어 레이어가 먼저 오고, 그 다음 메인 프롬프트가 옵니다.
         """
         parts = []
-        
+
         # 1. 시스템 방어 레이어 로드 (최우선)
         defense_prompt = self._load_prompt("system_defense.txt")
         if defense_prompt:
             parts.append(defense_prompt)
             logger.info("System defense layer loaded")
-        
+
         # 2. 메인 분석가 프롬프트 로드
         main_prompt = self._load_prompt("analyst_chat.txt")
         if main_prompt:
             parts.append("\n\n# === ANALYST INSTRUCTIONS ===\n")
             parts.append(main_prompt)
-        
+
         combined = "\n".join(parts)
         logger.debug(f"Combined system prompt: {len(combined)} chars")
         return combined
@@ -538,7 +538,7 @@ class AnalystChatbot(RAGBase):
                 tools=tools,
                 tool_choice="auto",
                 max_completion_tokens=2000,
-                response_format={"type": "json_object"}  # JSON 모드 강제
+                response_format={"type": "json_object"},  # JSON 모드 강제
             )
 
             resp_msg = response.choices[0].message
@@ -547,7 +547,7 @@ class AnalystChatbot(RAGBase):
             # 4. 도구 호출 처리
             chart_data = None
             recommendations = []
-            
+
             if tool_calls:
                 messages.append(resp_msg)
                 for tool_call in tool_calls:
@@ -582,7 +582,7 @@ class AnalystChatbot(RAGBase):
                     model=self.model,
                     messages=messages,
                     max_completion_tokens=2000,
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
                 )
                 raw_content = final_response.choices[0].message.content
             else:
@@ -657,12 +657,45 @@ class AnalystChatbot(RAGBase):
         try:
             from rag.report_generator import ReportGenerator
             from utils.pdf_utils import create_pdf
+            import matplotlib.pyplot as plt
+            import matplotlib
+            import yfinance as yf
+            from io import BytesIO
 
+            # Backend setting for thread safety
+            matplotlib.use("Agg")
+
+            # 1. Generate Chart Image
+            chart_buf = None
+            try:
+                end_d = datetime.now()
+                start_d = end_d - timedelta(days=90)
+                stock = yf.Ticker(target_ticker)
+                hist = stock.history(start=start_d, end=end_d)
+
+                if not hist.empty:
+                    plt.figure(figsize=(10, 5))
+                    plt.plot(hist.index, hist["Close"], label=f"{target_ticker} Price")
+                    plt.title(f"{target_ticker} 3-Month Price History")
+                    plt.xlabel("Date")
+                    plt.ylabel("Price")
+                    plt.grid(True)
+                    plt.legend()
+
+                    chart_buf = BytesIO()
+                    plt.savefig(chart_buf, format="png", dpi=100)
+                    chart_buf.seek(0)
+                    plt.close()
+            except Exception as e:
+                logger.warning(f"Chart generation for PDF failed: {e}")
+
+            # 2. Generate Report Content
             generator = ReportGenerator()
             report_md = generator.generate_report(target_ticker)
 
+            # 3. Create PDF with Chart
             try:
-                pdf_bytes = create_pdf(report_md)
+                pdf_bytes = create_pdf(report_md, chart_image=chart_buf)
                 return pdf_bytes, "pdf"
             except Exception:
                 return report_md, "md"

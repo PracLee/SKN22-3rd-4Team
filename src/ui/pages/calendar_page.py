@@ -102,7 +102,7 @@ def render():
 
     if not watchlist:
         st.error(
-            "⚠️ 관심 기업이 없습니다. [홈]에서 기업을 검색하여 ⭐ 버튼을 눌러주세요."
+            "⚠️ 관심 기업이 없습니다. 사이드바의 '⭐ 관심 기업 Quick Add'에서 기업을 추가해주세요."
         )
         return
 
