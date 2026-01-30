@@ -83,16 +83,14 @@ pip install -r requirements.txt
 
 ### 2. 환경 변수 설정 (.env)
 
-```env
 OPENAI_API_KEY=sk-...
 SUPABASE_URL=https://...
 SUPABASE_KEY=eyJ...
 FINNHUB_API_KEY=...
+TAVILY_API_KEY=...
 ```
 
 ### 3. 앱 실행
-
-```bash
 streamlit run app.py
 ```
 

@@ -1,13 +1,11 @@
 """
-Investment Report Generation Page - 투자 레포트 생성 페이지
-
-리팩토링 버전:
-- 차트 렌더링 로직을 chart_helpers.py로 분리
-- 중복 코드 제거 및 가독성 향상
+Investment Report Generation Page - 투자 레포트 생성 페이지 (Ticker Autocomplete Version)
 """
 
 import streamlit as st
 from utils.pdf_utils import create_pdf
+from streamlit_searchbox import st_searchbox
+from utils.supabase_helper import search_tickers
 
 # ============================================================
 # 차트 유틸리티 로드
@@ -77,23 +75,9 @@ except ImportError:
 
 FORM_CSS = """
 <style>
-/* Form 내 수평 블록 정렬 */
-div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
-    align-items: flex-end !important;
-    gap: 0.5rem;
-}
-/* 버튼 컨테이너 하단 패딩 제거 */
-div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div:last-child {
-    padding-bottom: 0 !important;
-    margin-bottom: 0 !important;
-}
-div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div:last-child button {
-    height: 42px !important;
-    margin-top: 0 !important;
-}
-/* 입력창 높이 맞춤 */
-div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] input {
-    height: 42px !important;
+/* Searchbox 스타일 조정 */
+.stSearchbox > div {
+    margin-top: 0px;
 }
 </style>
 """
@@ -119,7 +103,6 @@ def render_charts(tickers: list) -> list:
             return render_charts_matplotlib(tickers, MPL_FUNCS)
 
     # 헬퍼가 없거나 차트 라이브러리가 없는 경우 Fallback
-    # (일반적으로 발생하지 않음, 헬퍼 모듈이 프로젝트에 포함됨)
     try:
         from ui.helpers.chart_helpers import render_stock_chart_fallback
 
@@ -143,37 +126,114 @@ def render():
     st.caption("gpt-4.1-mini 기반 | 단일 기업 분석 & 비교 분석 레포트 생성")
 
     st.markdown("---")
-
     st.info(
-        "💡 **단일 분석**: `AAPL` 또는 `애플` | **비교 분석**: `애플, 마이크로소프트, 알파벳` (콤마로 구분)"
+        "💡 **단일 분석**: `AAPL` 또는 `NVDA` | **비교 분석**: `AAPL, NVDA, MSFT` (콤마로 구분)"
+    )
+    st.info(
+        "💡 **검색 팁**: 회사명(한글/영어)이나 티커를 입력하면 자동완성 목록이 나타납니다. (예: '테' → '테슬라')"
     )
 
     # 차트 선택 UI
     if HELPERS_AVAILABLE:
         render_chart_selection()
 
-    # 입력 폼
-    with st.form("report_form", clear_on_submit=False):
-        col1, col2 = st.columns([4, 1])
+    col1, col2 = st.columns([4, 1])
 
-        with col1:
-            ticker = st.text_input(
-                "분석할 회사 (티커 또는 한글명)",
-                placeholder="AAPL 또는 애플, 테슬라, 알파벳",
-                key="report_ticker_main",
-                label_visibility="collapsed",
-            )
+    from streamlit_searchbox import st_searchbox
+    from utils.supabase_helper import search_tickers
 
-        with col2:
-            generate_btn = st.form_submit_button(
-                "📝 레포트 생성",
-                type="primary",
-                use_container_width=True,
-            )
+    # -------------------------------------------------------------
+    # Multi-Select State Manager
+    # -------------------------------------------------------------
+    if "selected_tickers" not in st.session_state:
+        st.session_state.selected_tickers = []
 
-    # 레포트 생성 처리
-    if generate_btn and ticker:
-        _handle_report_generation(ticker)
+    # Counter for unique keys (fixes resurrection bug)
+    if "search_key_id" not in st.session_state:
+        st.session_state.search_key_id = 0
+
+    def remove_ticker(t):
+        if t in st.session_state.selected_tickers:
+            st.session_state.selected_tickers.remove(t)
+            # Increment key ID to force searchbox reset
+            st.session_state.search_key_id += 1
+
+    # -------------------------------------------------------------
+    # 1. Selected Tags Display Area
+    # -------------------------------------------------------------
+    st.markdown("### 🎯 분석 대상 (선택됨)")
+
+    if st.session_state.selected_tickers:
+        # Display tags in rows for tighter packing.
+        # Using 6 cols reduces the width of each "cell", pulling buttons closer.
+        cols_per_row = 6
+        tags = st.session_state.selected_tickers
+
+        for i in range(0, len(tags), cols_per_row):
+            row_tags = tags[i : i + cols_per_row]
+            cols = st.columns(cols_per_row)
+
+            for j, t in enumerate(row_tags):
+                with cols[j]:
+                    # Simple label: "{t}" (user requested emoji removal)
+                    # Use unique key per item
+                    if st.button(
+                        t, key=f"rm_{t}", help="클릭하여 삭제 (Click to remove)"
+                    ):
+                        remove_ticker(t)
+                        st.rerun()
+    else:
+        st.caption("비어 있음. 아래에서 검색하여 추가하세요.")
+
+    st.markdown("---")
+
+    # -------------------------------------------------------------
+    # 2. Search & Add Interface
+    # -------------------------------------------------------------
+    with col1:
+        # Searchbox: Returns the selected value (ticker or raw input)
+        # clear_on_submit=True ensures it resets after selection
+        # Unique key forces reset when list changes, fixing the state persistence bug
+        unique_key = f"ticker_search_{st.session_state.search_key_id}"
+
+        new_selection = st_searchbox(
+            search_tickers,
+            key=unique_key,
+            placeholder="티커(TSLA)나 이름(테슬라) 검색 또는 직접입력...",
+            label="분석할 회사 검색 및 추가",
+            clear_on_submit=True,
+        )
+
+        # Logic: If something is selected, add to state and rerun to update tags
+        if new_selection:
+            # Avoid duplicates
+            if new_selection not in st.session_state.selected_tickers:
+                st.session_state.selected_tickers.append(new_selection)
+                # Increment key ID for the next render
+                st.session_state.search_key_id += 1
+                st.rerun()
+            else:
+                st.toast(f"이미 추가된 항목입니다: {new_selection}")
+
+    with col2:
+        st.markdown("<div style='margin-top: 29px'></div>", unsafe_allow_html=True)
+        generate_btn = st.button(
+            "📝 레포트 생성",
+            type="primary",
+            use_container_width=True,
+            key="gen_btn_main",
+        )
+
+    # -------------------------------------------------------------
+    # 3. Report Generation
+    # -------------------------------------------------------------
+    if generate_btn:
+        final_list = st.session_state.selected_tickers
+        if final_list:
+            joined_tags = ", ".join(final_list)
+            _handle_report_generation(joined_tags)
+        else:
+            st.warning("분석할 회사를 하나 이상 추가해주세요.")
 
 
 def _handle_report_generation(ticker: str):
@@ -184,15 +244,34 @@ def _handle_report_generation(ticker: str):
 
         generator = ReportGenerator()
 
-        # 티커 해석
+        # UI에서 이미 정확한 티커를 선택했으므로 resolve 로직 필요성 감소하지만
+        # 비교 분석(콤마 입력)을 수동으로 입력했을 경우 등을 대비해 유지
         if HELPERS_AVAILABLE:
-            tickers = resolve_tickers(ticker, resolve_to_ticker)
+            # resolve_tickers returns List[dict] {'ticker': ..., 'reason': ..., 'original': ...}
+            resolved_results = resolve_tickers(ticker, resolve_to_ticker)
+
+            tickers = []
+            for item in resolved_results:
+                t = item["ticker"]
+                r = item.get("reason")
+                orig = item.get("original")
+
+                tickers.append(t)
+
+                # Display reason if substitution happened via web search
+                if r:
+                    st.info(
+                        f"ℹ️ **'{orig}'** → **'{t}'** 로 분석됩니다.\n   (이유: {r})"
+                    )
         else:
+            # Fallback (Legacy)
             if "," in ticker:
                 raw_terms = [t.strip() for t in ticker.split(",") if t.strip()]
-                tickers = [resolve_to_ticker(t) for t in raw_terms]
+                tickers = [
+                    resolve_to_ticker(t)[0] for t in raw_terms
+                ]  # handle tuple return
             else:
-                tickers = [resolve_to_ticker(ticker.strip())]
+                tickers = [resolve_to_ticker(ticker.strip())[0]]
 
         # 레포트 생성
         if HELPERS_AVAILABLE:

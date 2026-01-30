@@ -120,21 +120,31 @@ def render_charts_matplotlib(
     return chart_images
 
 
-def resolve_tickers(raw_input: str, resolver_func: Callable[[str], str]) -> List[str]:
+def resolve_tickers(
+    raw_input: str, resolver_func: Callable[[str], tuple[str, str | None]]
+) -> List[dict]:
     """
-    입력 문자열을 티커 목록으로 변환
+    입력 문자열을 티커 정보 목록으로 변환
 
     Args:
         raw_input: 사용자 입력 (단일 또는 콤마 구분)
-        resolver_func: 티커 해석 함수
+        resolver_func: 티커 해석 함수 (returns (ticker, reason))
 
     Returns:
-        티커 목록
+        List[dict]: [{'ticker': 'MSFT', 'reason': '...'}, ...]
     """
+    results = []
+
     if "," in raw_input:
         raw_terms = [t.strip() for t in raw_input.split(",") if t.strip()]
-        return [resolver_func(t) for t in raw_terms]
-    return [resolver_func(raw_input.strip())]
+    else:
+        raw_terms = [raw_input.strip()]
+
+    for term in raw_terms:
+        ticker, reason = resolver_func(term)
+        results.append({"ticker": ticker, "reason": reason, "original": term})
+
+    return results
 
 
 def generate_report_with_spinner(

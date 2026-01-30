@@ -154,35 +154,29 @@ class DataRetriever:
 
     def _fetch_financial_data_parallel(self, company_id: str) -> Dict:
         """재무 데이터를 병렬로 수집"""
+
+        def _safe_query(table, order_cols):
+            try:
+                q = self.supabase.table(table).select("*").eq("company_id", company_id)
+                for col in order_cols:
+                    q = q.order(col, desc=True)
+                return q.limit(5).execute().data
+            except Exception:
+                return []
+
         with ThreadPoolExecutor(max_workers=3) as executor:
             ann_f = executor.submit(
-                lambda: self.supabase.table("annual_reports")
-                .select("*")
-                .eq("company_id", company_id)
-                .order("fiscal_year", desc=True)
-                .limit(3)
-                .execute()
+                lambda: _safe_query("annual_reports", ["fiscal_year"])
             )
             qrt_f = executor.submit(
-                lambda: self.supabase.table("quarterly_reports")
-                .select("*")
-                .eq("company_id", company_id)
-                .order("fiscal_year", desc=True)
-                .order("fiscal_quarter", desc=True)
-                .limit(4)
-                .execute()
+                lambda: _safe_query(
+                    "quarterly_reports", ["fiscal_year", "fiscal_quarter"]
+                )
             )
-            prc_f = executor.submit(
-                lambda: self.supabase.table("stock_prices")
-                .select("*")
-                .eq("company_id", company_id)
-                .order("price_date", desc=True)
-                .limit(5)
-                .execute()
-            )
+            prc_f = executor.submit(lambda: _safe_query("stock_prices", ["price_date"]))
 
             return {
-                "annual": ann_f.result().data or [],
-                "quarterly": qrt_f.result().data or [],
-                "prices": prc_f.result().data or [],
+                "annual": ann_f.result() or [],
+                "quarterly": qrt_f.result() or [],
+                "prices": prc_f.result() or [],
             }

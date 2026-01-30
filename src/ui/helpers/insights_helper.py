@@ -36,24 +36,23 @@ COMPANY_MAP = {
 }
 
 
-def resolve_to_ticker(term: str) -> str:
+def resolve_to_ticker(term: str) -> tuple[str, str | None]:
     """한글명이나 영문명을 티커로 변환 (공용 함수)
 
-    1. 이미 티커 형식(대문자 영문)이면 그대로 반환
-    2. COMPANY_MAP에서 검색
-    3. DB에서 검색 (Supabase)
-    4. 찾지 못하면 대문자로 반환
+    Returns:
+        tuple: (ticker, reason)
+        reason은 웹 검색으로 찾은 경우에만 제공됨 (UI 표시용)
     """
     term = term.strip()
 
     # 이미 티커 형식이면 반환
     if term.isupper() and term.isalpha() and len(term) <= 5:
-        return term
+        return term, None
 
     # 매핑 테이블에서 검색
     lower_term = term.lower()
     if lower_term in COMPANY_MAP:
-        return COMPANY_MAP[lower_term]
+        return COMPANY_MAP[lower_term], None
 
     # DB에서 검색 (lazy import)
     try:
@@ -61,11 +60,23 @@ def resolve_to_ticker(term: str) -> str:
 
         df = SupabaseClient.search_companies(term)
         if df is not None and not df.empty:
-            return df.iloc[0]["ticker"]
+            return df.iloc[0]["ticker"], None
     except Exception:
         pass
 
-    return term.upper()
+    # [NEW] Web Search for Unknown Tickers (Tavily)
+    try:
+        from src.utils.ticker_search_agent import find_ticker_from_web
+
+        # Only search if it looks like a potential company name (not too long)
+        if len(term) < 20:
+            found_ticker, reason = find_ticker_from_web(term)
+            if found_ticker != "UNKNOWN":
+                return found_ticker, reason
+    except Exception as e:
+        print(f"Web search failed: {e}")
+
+    return term.upper(), None
 
 
 def extract_ticker_from_context(context: str) -> str | None:
