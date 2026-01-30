@@ -17,21 +17,30 @@ from typing import Optional
 from reportlab.lib.utils import ImageReader
 
 
-def create_pdf(markdown_text: str, chart_image: Optional[BytesIO] = None) -> bytes:
+def create_pdf(
+    markdown_text: str,
+    chart_image: Optional[BytesIO] = None,
+    chart_images: Optional[list] = None,
+) -> bytes:
     """Convert Markdown text to PDF using ReportLab with enhanced styling
 
     Args:
         markdown_text: Markdown content
-        chart_image: Optional BytesIO object containing chart image (PNG/JPEG)
+        chart_image: (Deprecated) Single chart image for backward compatibility
+        chart_images: List of BytesIO objects containing chart images (PNG/JPEG)
 
     Features:
         - Bold text support (**text**)
         - Heading hierarchy with proper sizing
-        - Colored section headers
-        - Improved table styling
-        - Better spacing and readability
-        - Chart image embedding
+        - Multiple chart images support
+        - Reduced chart sizes for better readability
     """
+    # Backward compatibility: merge single chart_image into list
+    all_charts = []
+    if chart_images:
+        all_charts.extend(chart_images)
+    elif chart_image:
+        all_charts.append(chart_image)
     # Get project root and fonts directory
     project_root = Path(__file__).parent.parent.parent
     fonts_dir = project_root / "fonts"
@@ -192,33 +201,47 @@ PDF 생성을 위해:
         c.setFillColor(colors.black)  # Reset color
 
     def draw_current_chart():
+        """Draw all chart images at reduced size (80% width) for better readability"""
         nonlocal y_position, chart_drawn
-        if chart_image and not chart_drawn:
-            try:
-                img = ImageReader(chart_image)
-                img_width, img_height = img.getSize()
-                aspect = img_height / float(img_width)
+        if all_charts and not chart_drawn:
+            for chart_buf in all_charts:
+                try:
+                    chart_buf.seek(0)  # Reset buffer position
+                    img = ImageReader(chart_buf)
+                    img_width, img_height = img.getSize()
+                    aspect = img_height / float(img_width)
 
-                # 꽉 찬 너비로 설정
-                display_width = max_width
-                display_height = display_width * aspect
+                    # 80% 너비로 표시하여 컴팩트한 레이아웃
+                    display_width = max_width * 0.80
+                    display_height = display_width * aspect
 
-                # 페이지 공간 확인
-                if y_position - display_height < 1 * inch:
-                    new_page()
+                    # 동적 높이 제한 (차트 비율에 따라 조정)
+                    # 모든 차트가 너비(80%)를 유지하도록 최대 높이를 페이지 전체로 확장
+                    max_chart_height = height - 2 * inch
 
-                c.drawImage(
-                    img,
-                    margin_left,
-                    y_position - display_height,
-                    width=display_width,
-                    height=display_height,
-                    mask="auto",
-                )
-                y_position -= display_height + 20
-                chart_drawn = True
-            except Exception as e:
-                print(f"Chart image render failed: {e}")
+                    if display_height > max_chart_height:
+                        display_height = max_chart_height
+                        display_width = display_height / aspect
+
+                    # 페이지 공간 확인
+                    if y_position - display_height < 1.5 * inch:
+                        new_page()
+
+                    # 중앙 정렬
+                    x_offset = margin_left + (max_width - display_width) / 2
+
+                    c.drawImage(
+                        img,
+                        x_offset,
+                        y_position - display_height,
+                        width=display_width,
+                        height=display_height,
+                        mask="auto",
+                    )
+                    y_position -= display_height + 8  # 차트 간 간격 축소
+                except Exception as e:
+                    print(f"Chart image render failed: {e}")
+            chart_drawn = True
 
     def draw_heading(text: str, level: int, y_pos: float) -> float:
         """Draw heading with proper styling and word wrap support"""
@@ -442,17 +465,14 @@ PDF 생성을 위해:
             continue
         elif line.startswith("### "):
             y_position = draw_heading(line, 3, y_position)
-            draw_current_chart()
             i += 1
             continue
         elif line.startswith("## "):
             y_position = draw_heading(line, 2, y_position)
-            draw_current_chart()
             i += 1
             continue
         if line.startswith("# "):
             y_position = draw_heading(line, 1, y_position)
-            draw_current_chart()
 
             # 차트 이미지가 있고 아직 그리지 않았다면 제목 다음에 삽입
             if chart_image and not chart_drawn:
@@ -600,11 +620,29 @@ PDF 생성을 위해:
         y_position -= p_h + 2
         i += 1
 
-    # Fallback: Draw chart if not already drawn
-    draw_current_chart()
+    # 차트 섹션을 맨 마지막에 렌더링 (텍스트 콘텐츠 이후)
+    if all_charts and not chart_drawn:
+        # 차트 섹션 헤더 추가
+        y_position -= 20  # 여백
 
-    # Fallback: Draw chart if not already drawn
-    draw_current_chart()
+        if y_position < 2.5 * inch:
+            new_page()
+
+        # 구분선
+        c.setStrokeColor(colors.HexColor("#1a237e"))
+        c.setLineWidth(1.5)
+        c.line(margin_left, y_position, margin_right, y_position)
+        y_position -= 15
+
+        # 차트 섹션 제목
+        c.setFont(korean_font_bold, FONT_SIZES["h2"])
+        c.setFillColor(COLORS["h2"])
+        c.drawString(margin_left, y_position, "📊 차트 분석")
+        c.setFillColor(colors.black)
+        y_position -= 25
+
+        # 차트 렌더링
+        draw_current_chart()
 
     c.save()
     pdf_bytes = buffer.getvalue()

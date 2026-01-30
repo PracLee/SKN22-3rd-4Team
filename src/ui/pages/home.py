@@ -1,21 +1,29 @@
 """
-홈 페이지 - Supabase DB 연동
+홈 페이지 - Supabase DB 연동 + Plotly 차트
 """
 
 import streamlit as st
 import pandas as pd
 import sys
 from pathlib import Path
+from datetime import datetime
 
 # 경로 설정
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-# Supabase Client Imports moved to render() for Lazy Loading
-SUPABASE_AVAILABLE = False  # Default state until checked in render()
+# Lazy Loading 상태
+SUPABASE_AVAILABLE = False
+EXCHANGE_AVAILABLE = False
+PLOTLY_AVAILABLE = False
 
-# 환율 클라이언트 import
-# Exchange Client Imports moved to render() for Lazy Loading
-EXCHANGE_AVAILABLE = False  # Default state until checked in render()
+# Plotly import
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    pass
 
 
 def format_number(value, unit=""):
@@ -33,12 +41,109 @@ def format_number(value, unit=""):
         return f"${value:,.0f}{unit}"
 
 
+def _render_plotly_bar_chart(df: pd.DataFrame, x_col: str, y_col: str, title: str):
+    """Plotly 바 차트 렌더링"""
+    if not PLOTLY_AVAILABLE:
+        st.bar_chart(df.set_index(x_col)[y_col])
+        return
+
+    fig = px.bar(
+        df,
+        x=x_col,
+        y=y_col,
+        title=title,
+        color=y_col,
+        color_continuous_scale="Blues",
+    )
+    fig.update_layout(
+        height=400,
+        xaxis_title="",
+        yaxis_title="매출 (십억 USD)",
+        showlegend=False,
+        template="plotly_white",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_plotly_pie_chart(series: pd.Series, title: str):
+    """Plotly 파이 차트 렌더링"""
+    if not PLOTLY_AVAILABLE:
+        st.bar_chart(series)
+        return
+
+    fig = px.pie(
+        values=series.values,
+        names=series.index,
+        title=title,
+        hole=0.4,  # 도넛 차트
+    )
+    fig.update_layout(
+        height=350,
+        template="plotly_white",
+    )
+    fig.update_traces(textposition="inside", textinfo="percent+label")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _get_data_period(supabase_client) -> str:
+    """DB에서 실제 데이터 기간 조회"""
+    try:
+        annual_df = supabase_client.get_annual_reports()
+        if not annual_df.empty and "fiscal_year" in annual_df.columns:
+            min_year = int(annual_df["fiscal_year"].min())
+            max_year = int(annual_df["fiscal_year"].max())
+            return f"{min_year}-{max_year}"
+    except:
+        pass
+    return "2020-2024"
+
+
+def _get_last_update() -> str:
+    """마지막 업데이트 시간"""
+    now = datetime.now()
+    return now.strftime("%m/%d %H:%M")
+
+
+# -----------------------------------------------------------------------------
+# Caching Functions (Performance Optimization)
+# -----------------------------------------------------------------------------
+
+
+@st.cache_data(ttl=3600)
+def _get_cached_companies(supabase_client):
+    """모든 기업 목록 캐싱 (1시간)"""
+    return supabase_client.get_all_companies()
+
+
+@st.cache_data(ttl=3600)
+def _get_cached_annual_reports(supabase_client):
+    """연간 재무 데이터 캐싱 (1시간)"""
+    return supabase_client.get_annual_reports()
+
+
+@st.cache_data(ttl=3600)
+def _get_cached_top_revenue_companies(supabase_client, year=2024, limit=20):
+    """매출 상위 기업 캐싱 (1시간)"""
+    return supabase_client.get_top_companies_by_revenue(year, limit)
+
+
+@st.cache_data(ttl=3600)
+def _get_cached_exchange_rates():
+    """환율 정보 캐싱 (1시간)"""
+    from src.tools.exchange_rate_client import get_exchange_client
+
+    try:
+        client = get_exchange_client()
+        return client.get_major_rates_summary()
+    except Exception:
+        return {}
+
+
 def render():
     """홈 페이지 렌더링"""
-
-    # Lazy Imports
     global SUPABASE_AVAILABLE, EXCHANGE_AVAILABLE
 
+    # Lazy Imports
     try:
         from src.data.supabase_client import (
             SupabaseClient,
@@ -62,7 +167,6 @@ def render():
         '<h1 class="main-header">📊 미국 재무제표 분석 및 투자 인사이트 봇</h1>',
         unsafe_allow_html=True,
     )
-
     st.markdown(
         '<p class="sub-header">AI 기반 미국 상장사 재무제표 분석 도구</p>',
         unsafe_allow_html=True,
@@ -71,9 +175,9 @@ def render():
     # 데이터베이스 연결 상태
     if SUPABASE_AVAILABLE:
         try:
-            companies_df = get_companies()
+            # Cached Call
+            companies_df = _get_cached_companies(SupabaseClient)
             company_count = len(companies_df)
-            # 연결 성공 시 조용히 진행
         except Exception as e:
             st.warning(f"⚠️ 데이터 로드 중 오류: {e}")
             companies_df = pd.DataFrame()
@@ -95,7 +199,6 @@ def render():
         cols = st.columns(min(len(st.session_state.watchlist), 6))
         for i, ticker in enumerate(st.session_state.watchlist[:6]):
             with cols[i]:
-                # 관심 기업 제거 버튼
                 if st.button(f"🗑️ {ticker}", key=f"home_rm_{ticker}", help="제거"):
                     st.session_state.watchlist.remove(ticker)
                     st.rerun()
@@ -104,29 +207,33 @@ def render():
             st.caption(f"... +{len(st.session_state.watchlist) - 6}개 더")
         st.markdown("---")
 
-    # 메트릭 카드
+    # 메트릭 카드 - 동적 데이터
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         st.metric(label="📈 등록된 기업", value=f"{company_count}개")
 
     with col2:
+        report_count = 0
         if SUPABASE_AVAILABLE and company_count > 0:
             try:
-                annual_df = SupabaseClient.get_annual_reports()
+                # Cached Call
+                annual_df = _get_cached_annual_reports(SupabaseClient)
                 report_count = len(annual_df)
             except:
-                report_count = 0
-        else:
-            report_count = 0
-
+                pass
         st.metric(label="📊 재무 레코드", value=f"{report_count}개")
 
     with col3:
-        st.metric(label="📅 데이터 기간", value="2020-2025")
+        # 동적 데이터 기간
+        data_period = (
+            _get_data_period(SupabaseClient) if SUPABASE_AVAILABLE else "2020-2024"
+        )
+        st.metric(label="📅 데이터 기간", value=data_period)
 
     with col4:
-        st.metric(label="🔄 마지막 업데이트", value="오늘")
+        # 동적 업데이트 시간
+        st.metric(label="🔄 마지막 조회", value=_get_last_update())
 
     # 환율 정보 섹션
     st.markdown("---")
@@ -134,42 +241,25 @@ def render():
 
     if EXCHANGE_AVAILABLE:
         try:
-            exchange_client = get_exchange_client()
-            summary = exchange_client.get_major_rates_summary()
+            # Cached Call
+            summary = _get_cached_exchange_rates()
             display_rates = summary.get("display_rates", {})
             update_time = summary.get("update_time", "N/A")
 
-            rate_col1, rate_col2, rate_col3, rate_col4 = st.columns(4)
+            rate_cols = st.columns(4)
+            rate_items = [
+                ("🇺🇸 달러 (USD/KRW)", "USD/KRW"),
+                ("🇯🇵 엔화 (100 JPY/KRW)", "JPY/KRW (100엔)"),
+                ("🇪🇺 유로 (EUR/KRW)", "EUR/KRW"),
+                ("🇬🇧 파운드 (GBP/KRW)", "GBP/KRW"),
+            ]
+            for col, (label, key) in zip(rate_cols, rate_items):
+                with col:
+                    st.metric(label=label, value=display_rates.get(key, "-"))
 
-            with rate_col1:
-                st.metric(
-                    label="🇺🇸 달러 (USD/KRW)",
-                    value=display_rates.get("USD/KRW", "-"),
-                )
-
-            with rate_col2:
-                st.metric(
-                    label="🇯🇵 엔화 (100 JPY/KRW)",
-                    value=display_rates.get("JPY/KRW (100엔)", "-"),
-                )
-
-            with rate_col3:
-                st.metric(
-                    label="🇪🇺 유로 (EUR/KRW)",
-                    value=display_rates.get("EUR/KRW", "-"),
-                )
-
-            with rate_col4:
-                st.metric(
-                    label="🇬🇧 파운드 (GBP/KRW)",
-                    value=display_rates.get("GBP/KRW", "-"),
-                )
-
-            # 환율 정보 출처 표시
             st.caption(
                 f"📅 실시간 정보 (한국시간: {update_time}) | 출처: Global Open Exchange | 기준: KRW (매매기준율)"
             )
-
         except Exception as e:
             st.warning(f"환율 정보를 불러올 수 없습니다: {e}")
     else:
@@ -181,239 +271,232 @@ def render():
     if "home_active_tab" not in st.session_state:
         st.session_state.home_active_tab = "📊 매출 상위 기업"
 
+    tab_options = ["🏆 매출 상위 기업", "🔍 기업 검색", "💾 DB 현황", "💡 빠른 시작"]
     selected_tab = st.radio(
         "메뉴 선택",
-        ["📊 매출 상위 기업", "🔍 기업 검색", "💡 빠른 시작"],
+        tab_options,
         horizontal=True,
         label_visibility="collapsed",
         key="home_tab_selection",
-        index=["📊 매출 상위 기업", "🔍 기업 검색", "💡 빠른 시작"].index(
-            st.session_state.home_active_tab
+        index=(
+            tab_options.index(st.session_state.home_active_tab)
+            if st.session_state.home_active_tab in tab_options
+            else 0
         ),
         on_change=lambda: st.session_state.update(
             home_active_tab=st.session_state.home_tab_selection
         ),
     )
 
-    if selected_tab == "📊 매출 상위 기업":
-        st.markdown("### 📊 2024년 매출 상위 20개 기업")
-
-        if SUPABASE_AVAILABLE and company_count > 0:
-            try:
-                top_df = get_top_revenue_companies(year=2024, limit=20)
-
-                if not top_df.empty:
-                    # 데이터 포맷팅
-                    display_df = top_df[
-                        [
-                            "ticker",
-                            "company_name",
-                            "revenue",
-                            "net_income",
-                            "total_assets",
-                        ]
-                    ].copy()
-                    display_df.columns = ["티커", "기업명", "매출", "순이익", "총자산"]
-
-                    # 숫자 포맷팅
-                    display_df["매출"] = display_df["매출"].apply(
-                        lambda x: format_number(x)
-                    )
-                    display_df["순이익"] = display_df["순이익"].apply(
-                        lambda x: format_number(x)
-                    )
-                    display_df["총자산"] = display_df["총자산"].apply(
-                        lambda x: format_number(x)
-                    )
-
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-                    # 차트
-                    st.markdown("### 📈 매출 비교 차트")
-                    chart_df = top_df[["ticker", "revenue"]].dropna().head(10)
-                    chart_df["revenue"] = chart_df["revenue"] / 1e9  # 10억 달러 단위
-                    chart_df = chart_df.set_index("ticker")
-                    st.bar_chart(chart_df, use_container_width=True)
-                else:
-                    st.info("2024년 데이터가 아직 없습니다.")
-            except Exception as e:
-                st.error(f"데이터 로드 오류: {e}")
-        else:
-            st.info("Supabase에 연결하여 데이터를 확인하세요.")
+    if selected_tab == "🏆 매출 상위 기업":
+        _render_top_companies_tab(SUPABASE_AVAILABLE, company_count)
 
     elif selected_tab == "🔍 기업 검색":
-        st.markdown("### 🔍 기업 검색")
-
-        # 검색어 상태 유지
-        if "search_query" not in st.session_state:
-            st.session_state.search_query = ""
-
-        def update_search():
-            st.session_state.search_query = st.session_state.search_input
-
-        search_query = st.text_input(
-            "티커 또는 기업명으로 검색",
-            placeholder="예: AAPL, Apple, Microsoft",
-            value=st.session_state.search_query,
-            key="search_input",
-            on_change=update_search,
+        _render_search_tab(
+            SUPABASE_AVAILABLE, SupabaseClient if SUPABASE_AVAILABLE else None
         )
 
-        if search_query and SUPABASE_AVAILABLE:
-            try:
-                results = SupabaseClient.search_companies(search_query)
-
-                if not results.empty:
-                    st.success(f"{len(results)}개 기업 검색됨")
-
-                    for _, company in results.iterrows():
-                        col_exp, col_star = st.columns([10, 1])
-                        ticker = company["ticker"]
-                        is_watched = ticker in st.session_state.watchlist
-
-                        with col_star:
-                            # 관심 기업 토글 버튼
-                            btn_label = "⭐" if is_watched else "☆"
-                            # 키를 고유하게 설정
-                            if st.button(
-                                btn_label,
-                                key=f"star_search_{ticker}",
-                                help="관심 기업 추가/제거",
-                            ):
-                                if is_watched:
-                                    st.session_state.watchlist.remove(ticker)
-                                else:
-                                    st.session_state.watchlist.append(ticker)
-                                st.rerun()
-
-                        with col_exp:
-                            with st.expander(
-                                f"📊 {company['ticker']} - {company['company_name']}"
-                            ):
-                                # 기업 재무 정보 조회
-                                financials = SupabaseClient.get_financial_summary(
-                                    company["ticker"]
-                                )
-
-                                if financials and financials.get("annual_reports"):
-                                    reports = financials["annual_reports"]
-
-                                    c1, c2, c3 = st.columns(3)
-                                    latest = reports[0] if reports else {}
-
-                                    with c1:
-                                        st.metric(
-                                            "매출", format_number(latest.get("revenue"))
-                                        )
-                                    with c2:
-                                        st.metric(
-                                            "순이익",
-                                            format_number(latest.get("net_income")),
-                                        )
-                                    with c3:
-                                        st.metric(
-                                            "총자산",
-                                            format_number(latest.get("total_assets")),
-                                        )
-
-                                    # 연도별 데이터 테이블
-                                    reports_df = pd.DataFrame(reports)
-                                    if not reports_df.empty:
-                                        display_cols = [
-                                            "fiscal_year",
-                                            "revenue",
-                                            "net_income",
-                                            "eps",
-                                        ]
-                                        available_cols = [
-                                            c
-                                            for c in display_cols
-                                            if c in reports_df.columns
-                                        ]
-                                        st.dataframe(
-                                            reports_df[available_cols], hide_index=True
-                                        )
-                                else:
-                                    st.info("재무 데이터가 없습니다.")
-                else:
-                    st.warning("검색 결과가 없습니다.")
-            except Exception as e:
-                st.error(f"검색 오류: {e}")
+    elif selected_tab == "💾 DB 현황":
+        _render_db_status_tab(SUPABASE_AVAILABLE, companies_df, company_count)
 
     elif selected_tab == "💡 빠른 시작":
-        # ... (빠른 시작 내용은 그대로 유지, 너무 길어서 생략하지 않고 덮어쓰기 위해 context에 포함되지 않은 부분도 고려)
-        # However, since we are replacing the whole function block from render definition, we should include the rest.
-        # But previous context view ended at line 418.
-        # I need to verify if there is more content. The file size suggests it might be cut off or I have enough context.
-        # The file lines viewed previously were up to 418.
-        # I will reconstruct the 'Quick Start' section based on previous 'view_file' output.
+        _render_quick_start_tab()
 
-        st.markdown("### 💡 빠른 시작 가이드")
-        st.markdown(
-            """
-        #### 🎯 이 앱으로 할 수 있는 것들
-        
-        **1. 📥 데이터 수집 (기업 등록)**
-        - Finnhub API를 통한 실시간 데이터 수집 및 업데이트
-        - 기업 정보, 주가, 뉴스 데이터 자동 동기화
-        
-        **2. 🌐 그래프 분석**
-        - 기업 간 관계 시각화
-        - 파트너십, 경쟁사, 공급망 분석
-        
-        **3. 💬 SQL 쿼리**
-        - 자연어로 질문하면 SQL로 변환
-        - "Apple의 지난 3년 매출은?" → 즉시 답변
-        
-        **4. 💡 투자 인사이트**
-        - AI 기반 재무 분석 및 레포트 생성
-        - 투자 추천 및 리스크 평가
-        
-        ---
-        
-        #### 📊 현재 데이터베이스 현황
+
+def _render_top_companies_tab(supabase_available: bool, company_count: int):
+    """매출 상위 기업 탭"""
+    from src.data.supabase_client import get_top_revenue_companies
+
+    st.markdown("### 📊 2024년 매출 상위 20개 기업")
+
+    if supabase_available and company_count > 0:
+        try:
+            top_df = get_top_revenue_companies(year=2024, limit=20)
+
+            if not top_df.empty:
+                # 데이터 포맷팅
+                display_df = top_df[
+                    ["ticker", "company_name", "revenue", "net_income", "total_assets"]
+                ].copy()
+                display_df.columns = ["티커", "기업명", "매출", "순이익", "총자산"]
+
+                display_df["매출"] = display_df["매출"].apply(format_number)
+                display_df["순이익"] = display_df["순이익"].apply(format_number)
+                display_df["총자산"] = display_df["총자산"].apply(format_number)
+
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                # Plotly 바 차트
+                st.markdown("### 📈 매출 비교 차트")
+                chart_df = top_df[["ticker", "revenue"]].dropna().head(10).copy()
+                chart_df["revenue"] = chart_df["revenue"] / 1e9  # 십억 달러 단위
+
+                _render_plotly_bar_chart(
+                    chart_df,
+                    x_col="ticker",
+                    y_col="revenue",
+                    title="매출 상위 10개 기업 (십억 USD)",
+                )
+            else:
+                st.info("2024년 데이터가 아직 없습니다.")
+        except Exception as e:
+            st.error(f"데이터 로드 오류: {e}")
+    else:
+        st.info("Supabase에 연결하여 데이터를 확인하세요.")
+
+
+def _render_search_tab(supabase_available: bool, SupabaseClient):
+    """기업 검색 탭"""
+    st.markdown("### 🔍 기업 검색")
+
+    if "search_query" not in st.session_state:
+        st.session_state.search_query = ""
+
+    def update_search():
+        st.session_state.search_query = st.session_state.search_input
+
+    search_query = st.text_input(
+        "티커 또는 기업명으로 검색",
+        placeholder="예: AAPL, Apple, Microsoft",
+        value=st.session_state.search_query,
+        key="search_input",
+        on_change=update_search,
+    )
+
+    if search_query and supabase_available and SupabaseClient:
+        try:
+            results = SupabaseClient.search_companies(search_query)
+
+            if not results.empty:
+                st.success(f"{len(results)}개 기업 검색됨")
+
+                for _, company in results.iterrows():
+                    col_exp, col_star = st.columns([10, 1])
+                    ticker = company["ticker"]
+                    is_watched = ticker in st.session_state.watchlist
+
+                    with col_star:
+                        btn_label = "⭐" if is_watched else "☆"
+                        if st.button(
+                            btn_label,
+                            key=f"star_search_{ticker}",
+                            help="관심 기업 추가/제거",
+                        ):
+                            if is_watched:
+                                st.session_state.watchlist.remove(ticker)
+                            else:
+                                st.session_state.watchlist.append(ticker)
+                            st.rerun()
+
+                    with col_exp:
+                        with st.expander(
+                            f"📊 {company['ticker']} - {company['company_name']}"
+                        ):
+                            financials = SupabaseClient.get_financial_summary(
+                                company["ticker"]
+                            )
+
+                            if financials and financials.get("annual_reports"):
+                                reports = financials["annual_reports"]
+                                c1, c2, c3 = st.columns(3)
+                                latest = reports[0] if reports else {}
+
+                                with c1:
+                                    st.metric(
+                                        "매출", format_number(latest.get("revenue"))
+                                    )
+                                with c2:
+                                    st.metric(
+                                        "순이익",
+                                        format_number(latest.get("net_income")),
+                                    )
+                                with c3:
+                                    st.metric(
+                                        "총자산",
+                                        format_number(latest.get("total_assets")),
+                                    )
+
+                                reports_df = pd.DataFrame(reports)
+                                if not reports_df.empty:
+                                    display_cols = [
+                                        "fiscal_year",
+                                        "revenue",
+                                        "net_income",
+                                        "eps",
+                                    ]
+                                    available_cols = [
+                                        c
+                                        for c in display_cols
+                                        if c in reports_df.columns
+                                    ]
+                                    st.dataframe(
+                                        reports_df[available_cols], hide_index=True
+                                    )
+                            else:
+                                st.info("재무 데이터가 없습니다.")
+            else:
+                st.warning("검색 결과가 없습니다.")
+        except Exception as e:
+            st.error(f"검색 오류: {e}")
+
+
+def _render_db_status_tab(
+    supabase_available: bool, companies_df: pd.DataFrame, company_count: int
+):
+    """DB 현황 탭"""
+    st.markdown("### 💾 데이터베이스 현황")
+
+    if supabase_available and company_count > 0:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**등록된 기업 (일부)**")
+            if not companies_df.empty:
+                st.dataframe(
+                    companies_df[["ticker", "company_name"]].head(10),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+        with col2:
+            st.markdown("**섹터별 분포**")
+            if (
+                "sector" in companies_df.columns
+                and companies_df["sector"].notna().any()
+            ):
+                sector_counts = companies_df["sector"].value_counts()
+                # Plotly 파이 차트
+                _render_plotly_pie_chart(sector_counts, "섹터별 기업 분포")
+            else:
+                st.info("섹터 정보가 아직 없습니다.")
+    else:
+        st.info("데이터베이스에 연결되지 않았거나 데이터가 없습니다.")
+
+
+def _render_quick_start_tab():
+    """빠른 시작 가이드 탭"""
+    st.markdown("### 💡 빠른 시작 가이드")
+    st.markdown(
         """
-        )
+#### 🎯 주요 기능 안내
 
-        if SUPABASE_AVAILABLE and company_count > 0:
-            col1, col2 = st.columns(2)
+**1. 📊 홈 (Home)**
+- **매출 상위 기업**: 2024년 기준 매출 Top 20 기업의 재무 현황 조회
+- **기업 검색**: 티커/기업명으로 검색 및 관심 기업 등록
+- **DB 현황**: 수집된 데이터 및 섹터별 분포 확인
 
-            with col1:
-                st.markdown("**등록된 기업 (일부)**")
-                if not companies_df.empty:
-                    st.dataframe(
-                        companies_df[["ticker", "company_name"]].head(10),
-                        hide_index=True,
-                        use_container_width=True,
-                    )
+**2. 📝 레포트 생성 (Reports)**
+- **AI 투자 레포트**: 특정/복수 기업에 대한 심층 분석 보고서 생성
+- **비교 분석**: 여러 경쟁사를 동시에 비교 분석 (최대 3개 권장)
+- **차트 포함**: 주가, 거래량, 재무 차트가 포함된 PDF 레포트 다운로드
 
-            with col2:
-                st.markdown("**섹터별 분포**")
-                # 섹터 정보가 있다면 표시
-                if (
-                    "sector" in companies_df.columns
-                    and companies_df["sector"].notna().any()
-                ):
-                    sector_counts = companies_df["sector"].value_counts()
-                    st.bar_chart(sector_counts)
-                else:
-                    st.info("섹터 정보가 아직 없습니다.")
-        else:
-            st.info(
-                "데이터를 수집하려면 '투자 인사이트' 페이지에서 '애플 등록해줘'와 같이 요청하세요."
-            )
+**3. 🤖 투자 인사이트 (Insights)**
+- **AI 애널리스트**: 챗봇과 대화하며 투자 궁금증 해결
+- **실시간 데이터**: "애플 주가 어때?", "테슬라 재무 보여줘" 등 자연어 질문
+- **맞춤형 분석**: 사용자의 관심사에 맞춘 투자 조언 제공
 
-        # 샘플 질문
-        st.markdown("---")
-        st.markdown("#### 💬 샘플 질문 (SQL 쿼리 페이지에서 시도해보세요)")
-
-        sample_questions = [
-            "Apple의 2024년 매출과 순이익은?",
-            "매출 상위 10개 기업을 보여줘",
-            "순이익률이 가장 높은 기업은?",
-            "AAPL, MSFT, GOOGL, AMZN, NFLX의 총자산을 비교해줘",
-            "2023년 대비 2024년 매출이 증가한 기업은?",
-        ]
-
-        for q in sample_questions:
-            st.code(q, language=None)
+**4. 🗓️ 실적 캘린더 (Calendar)**
+- **관심 기업 일정**: 내가 등록한 관심 기업의 실적 발표일 확인
+- **시장 예측**: EPS 예상치와 실제 발표치(Surprise) 비교
+    """
+    )

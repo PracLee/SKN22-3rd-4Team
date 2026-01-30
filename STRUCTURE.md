@@ -44,12 +44,18 @@ c:\Workspaces\SKN22-3rd-4Team
     │   ├── report_generator.py
     │   └── vector_store.py
     ├── ui/               # 사용자 인터페이스
-    │   ├── helpers/
+    │   ├── helpers/      # UI 헬퍼 모듈
+    │   │   ├── chart_helpers.py   # 차트 렌더링 헬퍼
+    │   │   ├── chat_helpers.py    # 채팅 UI 헬퍼 (Plotly)
+    │   │   └── insights_helper.py # 인사이트 페이지 헬퍼
     │   └── pages/
     │       ├── calendar_page.py
     │       ├── home.py
     │       ├── insights.py
     │       └── report_page.py
     └── utils/            # 유틸리티 함수
-        └── pdf_utils.py  # PDF 생성 및 차트 임베딩
+        ├── common.py         # 공통 유틸리티 (import, env, 싱글톤)
+        ├── chart_utils.py    # Matplotlib 차트 (PDF용)
+        ├── plotly_charts.py  # Plotly 차트 (웹용, 벡터)
+        └── pdf_utils.py      # PDF 생성 및 차트 임베딩
 ```
