@@ -148,8 +148,9 @@ fonts/
 | 단일 기업 분석 | `AAPL` 또는 `애플` |
 | 비교 분석 레포트 | `애플, 마이크로소프트, 구글` (콤마로 구분) |
 
-- **📈 지능형 PDF 차트 삽입**: PDF 다운로드 시 3개월 주가 추이 차트가 최적의 위치(H1~H3 제목 뒤)에 자동으로 삽입됩니다. (제목이 없는 경우 문서 하단에 삽입)
-- **주가 차트 자동 표시**: 채팅창에서도 yfinance 기반 3개월 주가 추이 차트가 즉시 표시됩니다.
+- **📈 다중 차트 지원**: PDF 레포트 생성 시 **캔들스틱, 거래량, 재무 차트** 중 원하는 차트를 선택하여 포함할 수 있습니다.
+- **차트 선택 UI**: 레포트 생성 화면에서 체크박스를 통해 필요한 차트만 골라 PDF에 담으세요.
+- **주가 차트 자동 표시**: 채팅창에서도 "거래량 보여줘", "캔들 차트 보여줘" 등 자연어 요청에 따라 다양한 차트가 표시됩니다.
 - **한글명 검색 지원**: 티커 대신 한글 회사명으로 검색 가능
 - **개선된 UI**: 800px로 확장된 채팅 영역과 커진 폰트로 긴 보고서도 편안하게 읽을 수 있습니다.
 
@@ -249,32 +250,24 @@ SKN22-3rd-4Team/
 ├── .env                      # 환경 변수 (API 키)
 │
 ├── src/
-│   ├── core/                 # 핵심 모듈
-│   │   ├── chat_connector.py # 채팅 게이트웨이 (보안)
-│   │   └── input_validator.py# 입력 검증 (인젝션 방어)
+│   ├── core/                 # 핵심 모듈 (ChatConnector, Validator)
+│   ├── data/                 # 데이터 클라이언트 (Finnhub, Supabase)
+│   ├── rag/                  # RAG & AI 로직 (Chatbot, Report, GraphRAG)
 │   │
-│   ├── data/                 # 데이터 접근 레이어
-│   │   ├── finnhub_client.py # Finnhub API
-│   │   └── supabase_client.py# Supabase DB
+│   ├── ui/                   # 사용자 인터페이스
+│   │   ├── helpers/          # UI 헬퍼 (차트, 채팅, 인사이트)
+│   │   │   ├── chart_helpers.py
+│   │   │   └── chat_helpers.py
+│   │   └── pages/            # Streamlit 페이지
+│   │       ├── home.py
+│   │       ├── calendar_page.py
+│   │       ├── insights.py
+│   │       └── report_page.py
 │   │
-│   ├── rag/                  # RAG & AI 로직
-│   │   ├── analyst_chat.py   # AI 애널리스트 챗봇
-│   │   ├── report_generator.py# 보고서 생성기
-│   │   ├── data_retriever.py # 병렬 데이터 수집
-│   │   └── graph_rag.py      # 관계망 분석
-│   │
-│   ├── prompts/              # 프롬프트 파일
-│   │   ├── system_defense.txt# 보안 방어 레이어
-│   │   └── analyst_chat.txt  # 애널리스트 역할
-│   │
-│   ├── tools/                # 유틸리티 도구
-│   │   ├── scheduler_manager.py # 스케줄러 관리자
-│   │   └── exchange_rate_client.py # 환율 API
-│   │
-│   └── ui/pages/             # Streamlit 페이지
-│       ├── home.py           # 홈 대시보드 (Watchlist)
-│       ├── calendar_page.py  # 실적 발표 캘린더
-│       └── insights.py       # AI 채팅 인터페이스
+│   └── utils/                # 유틸리티
+│       ├── chart_utils.py    # 차트 생성 (Matplotlib)
+│       ├── pdf_utils.py      # PDF 생성
+│       └── plotly_charts.py  # 웹 차트 (Plotly)
 │
 ├── fonts/                    # 폰트 파일
 ├── docs/                     # 문서
