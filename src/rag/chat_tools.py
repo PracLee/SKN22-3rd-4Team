@@ -183,4 +183,22 @@ def get_chat_tools():
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "remove_from_favorites",
+                "description": "Remove a company from the user's favorites/watchlist.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "ticker": {
+                            "type": "string",
+                            "description": "Company ticker symbol to remove (e.g. AAPL, MSFT). If user says '관심기업 삭제해줘', '제거해줘', or '빼줘', extract the company name/ticker.",
+                        }
+                    },
+                    "required": ["ticker"],
+                },
+            },
+        },
     ]
+
