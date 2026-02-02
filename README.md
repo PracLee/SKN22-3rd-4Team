@@ -12,10 +12,10 @@
 | :--- | :--- |
 | **이병재 (Team Leader)**<br><sub>PM / ARCHITECTURE / DB</sub><br>[@PracLee](https://github.com/PracLee) | • 프로젝트 기획 및 전체 구조(Architecture) 설계<br>• 재무 데이터베이스(DB) 모델링 및 설계<br>• 챗봇 추천 검색어 로직 구현<br>• 단위/통합 테스트 주도 및 품질 관리 |
 | **장완식 (Core Dev)**<br><sub>RAG PIPELINE / UI/UX</sub><br>[@JangWS1030](https://github.com/JangWS1030) | • RAG 파이프라인(Chatbot) 핵심 로직 구현<br>• 로그인/인증 시스템 및 즐겨찾기 기능 개발<br>• DB 현황 모니터링 UI 및 PDF 리포트 수정<br>• 전반적인 UI/UX 개선 및 고도화 |
-| **안민제 (Feature Dev)**<br><sub>SEARCH / QA / DOCS</sub><br>[@minje0209-ux](https://github.com/minje0209-ux) | • 챗봇 검색어 자동완성 알고리즘 구현<br>• 추천 검색어 기능 고도화<br>• 프로젝트 최종 검토(Final Review) 및 QA<br>• README.md 작성 및 기술 문서화 |
+| **안민제 (Feature Dev)**<br><sub>SEARCH / QA / DOCS / DB</sub><br>[@minje0209-ux](https://github.com/minje0209-ux) | • 챗봇 검색어 자동완성 알고리즘 구현<br>• 추천 검색어 기능 고도화<br>• ticker/keyword DB 설계<br>• 챗봇/리포트 작성 프롬프트 고도화<br>• README.md 작성 및 기술 문서화 |
 | **이신재 (Frontend / QA)**<br><sub>TESTING / UI REFINEMENT</sub><br>[@Codingcooker74](https://github.com/Codingcooker74) | • 주요 기능 단위 테스트(Unit Test) 수행<br>• 사용자 인터페이스(UI) 오류 수정 및 폴리싱<br>• 반응형 레이아웃 최적화 지원 |
 
-### 핵심 기능
+## 🖐️ 핵심 기능
 
 1. **💬 AI Financial Analyst**: Finnhub 실시간 데이터와 내부 재무 DB를 결합한 RAG 챗봇 (병렬 수집 최적화로 빠른 응답)
 2. **📝 투자 리포트 + 주가 차트**: 단일/비교 분석 레포트 생성 + 3개월 주가 추이 차트 (`gpt-4.1-mini`, 한글명 검색)
@@ -28,11 +28,18 @@
 
 ```mermaid
 graph TD
-    User([👤 사용자]) -->|Interact| UI[💻 Streamlit Web App]
+    User([👤 사용자]) -->|Access| UI[💻 Streamlit Web App]
     
     subgraph Frontend Logic
+        UI -->|Login/Signup| Auth[🔐 Supabase Auth]
         UI -->|Chat Query| Validator[🛡️ Input Validator]
         UI -->|Report Request| ReportGen[📝 Report Generator]
+        UI -->|Manage Favorites| Watchlistmgr[⭐ Watchlist Manager]
+    end
+
+    subgraph Data & State
+        Auth <-->|Verify| UserDB[(👥 Users Table)]
+        Watchlistmgr <-->|Sync| UserDB
     end
 
     subgraph RAG Engine
@@ -90,11 +97,12 @@ KST 기준 실시간 환율 정보와 관심 기업(Watchlist)을 한눈에 확�
 
 ### 3. 📝 심층 투자 리포트 (Report Generator)
 단일 기업 분석부터 다중 기업 비교까지, 전문가 수준의 PDF 리포트를 원클릭으로 생성합니다.
-- **특징**: 주가 차트, 거래량, 재무 지표 시각화 포함
+
+**특징**: 주가 차트, 거래량, 재무 지표 시각화 포함
 ![Report Sample](./docs/images/report_preview.png)
 
 ### 4. 🔍 지능형 티커 검색
-"아이폰"을 검색하면 모기업 "AAPL"를 찾아주는 인공지능 검색 기능을 제공합니다.
+"아이폰"을 검색하면 모기업 "AAPL"를 찾아주는 자동완성 검색 기능을 제공합니다.
 ![Search Demo](./docs/images/search_preview.png)
 
 ---
@@ -127,7 +135,7 @@ KST 기준 실시간 환율 정보와 관심 기업(Watchlist)을 한눈에 확�
 - [x] **차트 기능 확장**: Plotly(웹) 및 Matplotlib(PDF) 기반 다양한 차트 시각화 추가
 - [x] **성능 최적화**: 홈 화면 데이터 캐싱 적용 (`st.cache_data`)
 - [x] 프로젝트 문서 및 의존성 파일 정리 완료
-- [ ] 사용자 맞춤형 포트폴리오 관리 (예정)
+- [x] 사용자 맞춤형 포트폴리오 관리
 
 ---
 
