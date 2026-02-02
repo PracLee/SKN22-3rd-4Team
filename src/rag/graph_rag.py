@@ -26,7 +26,7 @@ class GraphRAG:
     """
 
     def __init__(
-        self, embedding_model: str = "text-embedding-3-small", llm_model: str = "gpt-4o-mini"
+        self, embedding_model: str = "text-embedding-3-small", llm_model: str = "gpt-4.1-mini"
     ):
         """Initialize GraphRAG with Supabase"""
 

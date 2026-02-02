@@ -33,14 +33,16 @@ except ImportError:
         RAG_AVAILABLE = False
         logger.warning("RAG core modules not found. Some features may be disabled.")
 
-# Stock API 클라이언트 임포트
+# Stock API 클라이언트 임포트 (tools 우선 사용)
 try:
-    from data.stock_api_client import get_stock_api_client
+    from src.tools.stock_api_client import get_stock_api_client
 
     STOCK_API_AVAILABLE = True
 except ImportError:
     try:
-        from src.tools.stock_api_client import get_stock_api_client
+        from data.stock_api_client import get_stock_api_client
+
+        STOCK_API_AVAILABLE = True
 
         STOCK_API_AVAILABLE = True
     except ImportError:

@@ -27,27 +27,19 @@ class StockAPIClient:
     """
 
     BASE_URL = "https://finnhub.io/api/v1"
-    FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
 
     def __init__(self, api_key: str = None):
         """Initialize Stock API client"""
         self.api_key = api_key or os.getenv("FINNHUB_API_KEY")
-        self.fmp_api_key = os.getenv("FMP_API_KEY")
 
         if self.api_key:
             self.api_key = self.api_key.strip()
-
-        if self.fmp_api_key:
-            self.fmp_api_key = self.fmp_api_key.strip()
 
         if not self.api_key or self.api_key == "your_finnhub_api_key_here":
             logger.warning(
                 "FINNHUB_API_KEY not set. Get free key at https://finnhub.io"
             )
             self.api_key = None
-
-        if not self.fmp_api_key:
-            logger.warning("FMP_API_KEY not set. Some features may be limited.")
 
         self.session = requests.Session()
 
@@ -67,9 +59,9 @@ class StockAPIClient:
             return response.json()
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
-                logger.warning(
-                    f"Finnhub API 403 Forbidden (Premium endpoint?): {endpoint}"
-                )
+                # logger.warning(
+                #     f"Finnhub API 403 Forbidden (Premium endpoint?): {endpoint}"
+                # )
                 return {
                     "error": "Prediction/Premium endpoint not available on this plan"
                 }
@@ -364,50 +356,16 @@ class StockAPIClient:
         result = self._request("stock/earnings", {"symbol": symbol.upper()})
         return result if isinstance(result, list) else []
 
-    # ========== 캘린더 (FMP) ==========
+    # ========== 캘린더 (미사용) ==========
 
     def get_earnings_calendar(
         self, from_date: str = None, to_date: str = None
     ) -> List[Dict]:
         """
-        실적 발표 캘린더 (FMP API 사용)
-        Returns: list of dictionary
+        실적 발표 캘린더 (FMP 미사용으로 인해 빈 리스트 반환 or 추후 Finnhub 유료 기능 연동)
         """
-        if not self.fmp_api_key:
-            logger.warning("FMP API Key가 없어 캘린더 조회 불가")
-            return []
-
-        if not from_date:
-            from_date = datetime.now().strftime("%Y-%m-%d")
-        if not to_date:
-            to_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
-
-        try:
-            url = f"{self.FMP_BASE_URL}/earning_calendar"
-            params = {
-                "from": from_date,
-                "to": to_date,
-                "apikey": self.fmp_api_key,
-            }
-            response = self.session.get(url, params=params, timeout=10)
-            response.raise_for_status()
-
-            data = response.json()
-            if isinstance(data, list):
-                return data
-            return []
-
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 403:
-                logger.warning(
-                    f"FMP API 403 Forbidden: 해당 기간({from_date}~{to_date})의 데이터 접근 권한이 없습니다. (무료 플랜 제한 가능성)"
-                )
-                return []
-            logger.error(f"FMP Earnings Calendar API error: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"FMP Earnings Calendar API error: {e}")
-            return []
+        # 현재 FMP를 사용하지 않으므로 빈 리스트 반환
+        return []
 
     # ========== 유틸리티 ==========
 

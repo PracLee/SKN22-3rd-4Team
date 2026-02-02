@@ -185,7 +185,7 @@ class AnalystChatbot(RAGBase):
                 messages=[
                     {
                         "role": "system",
-                        "content": "Extract all company ticker symbols from the query. Return them comma-separated (e.g., AAPL, MSFT). If none, return NOTHING.",
+                        "content": "Extract all company ticker symbols from the query (e.g., AAPL, MSFT, KO). Return them comma-separated. Do NOT extract financial terms like AOCI, EBITDA, GAAP, USD. If none, return NOTHING.",
                     },
                     {"role": "user", "content": query},
                 ],
@@ -511,7 +511,9 @@ class AnalystChatbot(RAGBase):
                     try:
                         from tools.favorites_manager import remove_from_favorites_tool
                     except ImportError:
-                        from src.tools.favorites_manager import remove_from_favorites_tool
+                        from src.tools.favorites_manager import (
+                            remove_from_favorites_tool,
+                        )
 
                     ticker = function_args.get("ticker", "")
                     return remove_from_favorites_tool(ticker)
@@ -671,30 +673,30 @@ class AnalystChatbot(RAGBase):
         if not any(k in message.lower() for k in keywords):
             return None, "md"
 
-        target_ticker = tickers[0] if tickers else None
+        # target_tickers 초기화 (입력받은 tickers 사용)
+        target_tickers = tickers if tickers else []
 
         # 히스토리에서 티커 역추적 (User 메시지 우선)
-        if not target_ticker:
+        if not target_tickers:
             for hist_msg in reversed(self.conversation_history):
                 # 사용자가 직접 언급한 순서를 따르기 위해 user 메시지 우선 확인
                 if hist_msg.get("role") == "user":
                     matches = re.findall(r"\b[A-Z]{2,5}\b", hist_msg["content"])
                     if matches:
                         # 사용자가 "A와 B 비교해줘"라고 했다면 matches=[A, B]
-                        # "먼저 나온 기업" = matches[0] (A)
-                        target_ticker = matches[0]
+                        target_tickers = matches
                         break
 
             # User 메시지에서 못 찾았다면 Assistant 메시지에서 확인 (Fallback)
-            if not target_ticker:
+            if not target_tickers:
                 for hist_msg in reversed(self.conversation_history):
                     if hist_msg.get("role") == "assistant":
                         matches = re.findall(r"\b[A-Z]{2,5}\b", hist_msg["content"])
                         if matches:
-                            target_ticker = matches[0]
+                            target_tickers = matches
                             break
 
-        if not target_ticker:
+        if not target_tickers:
             return None, "md"
 
         try:

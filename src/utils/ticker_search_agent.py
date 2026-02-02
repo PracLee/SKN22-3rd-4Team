@@ -31,7 +31,7 @@ def find_ticker_from_web(query: str) -> tuple[str, str | None]:
 
         # 2. Extract Ticker using LLM
         # We use a small model for speed and cost efficiency
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0)
 
         prompt = ChatPromptTemplate.from_template(
             """
