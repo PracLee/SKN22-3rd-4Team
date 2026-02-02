@@ -409,3 +409,42 @@ section[data-testid="stSidebar"] [data-testid="stRadio"]>div[role="radiogroup"]>
     border-bottom: none !important;
     border-left: 3px solid rgba(0, 212, 255, 0.5);
 }
+
+/* ==========================================================================================
+   Sidebar Watchlist Buttons - Center Text
+   ========================================================================================== */
+
+/* 사이드바 내 버튼 텍스트 가운데 정렬 */
+section[data-testid="stSidebar"] button[kind="secondary"],
+section[data-testid="stSidebar"] button[data-testid="baseButton-secondary"] {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    text-align: center !important;
+    width: 100% !important;
+}
+
+section[data-testid="stSidebar"] button[kind="secondary"] p,
+section[data-testid="stSidebar"] button[data-testid="baseButton-secondary"] p,
+section[data-testid="stSidebar"] button div[data-testid="stMarkdownContainer"],
+section[data-testid="stSidebar"] button div[data-testid="stMarkdownContainer"] p {
+    text-align: center !important;
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+/* 버튼 내부 span, div 모든 요소 가운데 정렬 */
+section[data-testid="stSidebar"] .stButton button {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+section[data-testid="stSidebar"] .stButton button>div {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    width: 100% !important;
+}

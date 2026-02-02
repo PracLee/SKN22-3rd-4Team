@@ -75,12 +75,6 @@ selected_page = st.sidebar.radio(
     "페이지 선택", list(pages.keys()), label_visibility="collapsed"
 )
 
-# ============================================================
-# 스케줄러 상태 표시 / 관심 기업 표시 (사이드바)
-# ============================================================
-st.sidebar.markdown("---")
-render_sidebar_status()
-
 st.sidebar.markdown("---")
 with st.sidebar.expander("⭐ 관심 기업", expanded=True):
     # 관심 기업 초기화
@@ -93,13 +87,13 @@ with st.sidebar.expander("⭐ 관심 기업", expanded=True):
     add_col1, add_col2 = st.columns([3, 1])
     with add_col1:
         new_ticker = st.text_input(
-            "티커 추가",
-            placeholder="AAPL",
+            "관심기업 추가",
+            placeholder="기업명/티커 입력",
             label_visibility="collapsed",
             key="sidebar_quick_add_ticker",
         )
     with add_col2:
-        add_clicked = st.button("➕", key="sidebar_add_btn", help="관심 기업 추가")
+        add_clicked = st.button("﹢", key="sidebar_add_btn", help="관심 기업 추가")
 
     if add_clicked and new_ticker:
         search_term = new_ticker.strip()
@@ -131,16 +125,16 @@ with st.sidebar.expander("⭐ 관심 기업", expanded=True):
     if watchlist:
         # 리스트 복사본으로 순회하여 삭제 시 문제 방지
         for ticker in list(watchlist):
-            col1, col2 = st.columns([4, 1])
+            col1, col2 = st.columns([3, 1])
             with col1:
                 st.markdown(f"📈 {ticker}")
             with col2:
-                if st.button("✕", key=f"sidebar_rm_{ticker}", help="제거"):
+                if st.button("x", key=f"sidebar_rm_{ticker}", help="제거"):
                     st.session_state.watchlist.remove(ticker)
                     st.rerun()
         st.caption(f"총 {len(st.session_state.watchlist)}개")
     else:
-        st.caption("위 입력창에 티커를 입력하세요\n(예: AAPL, MSFT, GOOGL)")
+        st.caption("위 입력창에 기업명/티커를 입력하세요\n(예: 애플, MSFT)")
 
 st.sidebar.markdown("---")
 
@@ -167,3 +161,10 @@ if selected_page in pages:
         st.error(f"페이지 로드 실패: {e}")
         # 디버깅을 위한 상세 로그
         logger.error(f"Failed to load page {module_path}: {e}", exc_info=True)
+
+
+# ============================================================
+# 스케줄러 상태 표시 / 관심 기업 표시 (사이드바)
+# ============================================================
+render_sidebar_status()
+st.sidebar.markdown("---")
