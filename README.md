@@ -22,6 +22,7 @@
 3. **📈 한국형 마켓 대시보드**: KST 기준 실시간 원화(KRW) 환율 및 주요 지표 제공
 4. **⭐ 사이드바 관심기업 Quick Add**: 어디서든 티커/한글명으로 즐겨찾기 추가 (DB 검증)
 5. **🔍 Text-to-SQL**: 자연어 질의를 통한 복잡한 재무 재표 검색
+
 ---
 
 ## 🏗️ 시스템 아키텍처
@@ -58,7 +59,7 @@ graph TD
         Retriever -->|Live Price/News| Finnhub[📡 Finnhub API]
         Retriever -->|Market Info| Yahoo[📈 yfinance API]
         Retriever -->|Unknown Ticker| Tavily[🕵️ Tavily Search]
-        VectorDB <-->|Sync| SEC[📄 SEC 10-K/10-Q]
+        VectorDB <-->|Sync| SEC[📄 SEC 10-K]
     end
 
     Retriever -->|Aggregated Context| LLM[🧠 GPT-4.1-mini]
@@ -67,6 +68,48 @@ graph TD
 ```
 
 ---
+
+## 🕸️ GraphRAG: 지능형 관계망 분석
+
+단순한 텍스트 검색(Vector RAG)을 넘어, 기업 간의 **공급망(Supply Chain), 경쟁 구도, 지배 구조**를 연결하여 입체적인 분석을 제공합니다.
+
+### 1. GraphRAG 작동 원리 (Architecture)
+
+```mermaid
+graph TD
+    subgraph "1. 데이터 추출 (Ingestion)"
+        A[Original Text / 10-K] --> B{LLM 관계 추출}
+        B -- "추출" --> C(JSON: Source-Target-Relationship)
+        C -- "저장" --> D[(Supabase: company_relationships)]
+    end
+
+    subgraph "2. 네트워크 구축 (Graph Building)"
+        D --> E[NetworkX 로컬 그래프 생성]
+        E --> F[Nodes: 기업/브랜드]
+        E --> G[Edges: 파트너, 경쟁사, 자회사 등]
+    end
+
+    subgraph "3. 지능형 검색 (Query)"
+        H[사용자 질문: '애플의 공급망 분석'] --> I{그래프 탐색}
+        I --> J[1/2단계 인접 노드 탐색]
+        J --> K[중심성 분석 / 최단 경로 계산]
+        K --> L[그래프 컨텍스트 생성]
+    end
+
+    subgraph "4. 인사이트 생성"
+        L --> M{Analyst LLM}
+        M --> N[입체적 투자 인사이트 답변]
+    end
+```
+
+### 2. 주요 기능
+
+- **관계망 추론**: 특정 기업의 악재가 공급망 내 어떤 기업에 파급될지 분석합니다.
+- **네트워크 위치 분석**: NetworkX의 `Centrality(중심성)` 알고리즘을 사용하여 시장 내 핵심 기업을 식별합니다.
+- **다차원 컨텍스트**: 벡터 검색 결과와 그래프 분석 결과를 결합하여 정보의 누락 없는 답변을 생성합니다.
+
+---
+
 ## 📚 기술 스택
 
 ![Python](https://img.shields.io/badge/Python-%233776AB.svg?style=for-the-badge&logo=python&logoColor=white)
@@ -88,20 +131,24 @@ graph TD
 ## 📸 주요 기능 및 실행 화면
 
 ### 1. 📊 메인 대시보드 (Home)
+
 KST 기준 실시간 환율 정보와 관심 기업(Watchlist)을 한눈에 확인할 수 있습니다.
 ![Main Dashboard](./docs/images/dashboard_preview.png)
 
 ### 2. 💬 AI 애널리스트 채팅 (RAG Chatbot)
+
 재무제표 DB와 실시간 뉴스 데이터를 기반으로 사용자의 투자 질문에 답변합니다. (출처 포함)
 ![Chat Interface](./docs/images/chat_preview.png)
 
 ### 3. 📝 심층 투자 리포트 (Report Generator)
+
 단일 기업 분석부터 다중 기업 비교까지, 전문가 수준의 PDF 리포트를 원클릭으로 생성합니다.
 
 **특징**: 주가 차트, 거래량, 재무 지표 시각화 포함
 ![Report Sample](./docs/images/report_preview.png)
 
 ### 4. 🔍 지능형 티커 검색
+
 "아이폰"을 검색하면 모기업 "AAPL"를 찾아주는 자동완성 검색 기능을 제공합니다.
 ![Search Demo](./docs/images/search_preview.png)
 
@@ -173,6 +220,7 @@ pip install -r requirements.txt
 ```
 
 ### 2. 환경 변수 설정 (.env)
+
 ```
 OPENAI_API_KEY=sk-...
 SUPABASE_URL=https://...
@@ -182,6 +230,7 @@ TAVILY_API_KEY=...
 ```
 
 ### 3. 앱 실행
+>
 > streamlit run app.py
 
 ---
@@ -208,6 +257,7 @@ TAVILY_API_KEY=...
 (참고: 액티비전 블리자드는 마이크로소프트에 인수합병되어 MSFT로 변경되었습니다)
 
 **해결 과정 (Solution):**
+
 1. **DB 기반 자동완성**: 1차적으로 내부 DB(`companies` 테이블)와 매핑된 키워드로 빠르고 정확한 자동완성을 제공했습니다.
 2. **지능형 웹 검색 (Agent Fallback)**: DB에 없는 키워드("액티비전" 등)가 입력되면, **Tavily Search API**를 활용한 에이전트가 실시간으로 웹을 검색합니다.
    - *"이 키워드를 만든 회사의 현재 상장 티커는 무엇인가?"*
@@ -215,6 +265,7 @@ TAVILY_API_KEY=...
 3. **사용자 피드백 루프**: 시스템이 티커를 대체할 경우, UI에 **"이유(Reason)"**를 명시하여 사용자의 혼란을 방지했습니다.
 
 **결과 (Impact):**
+
 - 정확하지 않은 티커로 인한 크래시 **<1%**
 - "오버워치" 같은 게임 이름이나, "Windows" 같은 OS 이름으로도 모기업(MSFT) 분석이 가능한 **유연한 검색 경험** 구현
 
@@ -224,14 +275,17 @@ TAVILY_API_KEY=...
 Finnhub API는 무료 플랜에서는 일일 요청 횟수에 제한이 있습니다. 이로 인해 여러 기업의 데이터를 동시에 수집하거나, 사용자가 여러 번 요청을 보낼 경우 데이터 수집이 실패하는 문제가 발생했습니다. 또한, Finnhub API의 응답 속도가 느려 데이터 수집 시간이 오래 걸리는 문제가 있었습니다.
 
 **해결 과정 (Solution):**
+
 1. **병렬 수집 최적화**: `DataRetriever` 클래스를 도입하여 여러 기업의 데이터를 동시에 수집할 수 있도록 개선했습니다. 이를 통해 API 요청 횟수를 줄이고 데이터 수집 속도를 높였습니다.
 2. **Fallback 메커니즘**: Finnhub API에서 데이터를 가져오지 못할 경우, `yfinance` 라이브러리를 사용하여 대체 데이터를 수집하도록 구현했습니다. 이를 통해 데이터 수집 실패율을 낮추고 사용자 경험을 개선했습니다.
 
 **결과 (Impact):**
+
 - Fallback 메커니즘으로 데이터 수집 실패율 감소
 - 데이터 병렬 수집으로 데이터 수집 속도 향상
 
 ---
 
 ## 📝 라이선스
+
 MIT License
