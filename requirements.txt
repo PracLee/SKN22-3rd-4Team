@@ -38,3 +38,11 @@ lxml>=5.1.0
 tavily-python>=0.3.0
 streamlit-searchbox>=0.1.7
 pypdf>=4.0.0
+
+# Evaluation & RAG Advanced
+ragas>=0.0.22
+datasets
+rapidfuzz
+sentence-transformers
+rank_bm25
+tf-keras

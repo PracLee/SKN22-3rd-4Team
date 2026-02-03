@@ -8,7 +8,8 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from dotenv import load_dotenv
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 try:
     from ragas.testset import TestsetGenerator
@@ -33,132 +34,91 @@ except Exception as e:
     sys.exit(1)
 
 
-def load_documents_with_context():
-    """Load documents and enrich with company info, financials, and relationships."""
-    print("⏳ CSV 파일 로딩 중...")
+from src.data.supabase_client import SupabaseClient
 
-    # Paths
-    project_root = Path(__file__).parent.parent.parent
-    docs_path = project_root / "data" / "documents_rows.csv"
-    companies_path = project_root / "data" / "companies_rows.csv"
-    financials_path = project_root / "data" / "annual_reports_rows.csv"
-    relationships_path = project_root / "data" / "company_relationships_rows.csv"
+def load_documents_with_context(limit=50, offset=0):
+    """Load documents and enrich with company info, financials, and relationships from Supabase."""
+    print("⏳ Supabase에서 데이터 로딩 중...")
 
-    if not docs_path.exists():
-        print(f"❌ 문서를 찾을 수 없습니다: {docs_path}")
+    # Initialize Supabase
+    try:
+        supabase = SupabaseClient.get_client()
+    except Exception as e:
+        print(f"❌ Supabase Client init failed: {e}")
         return []
 
-    # 1. Load DataFrames
-    df_docs = pd.read_csv(docs_path)
-    print(f"📄 문서 청크: {len(df_docs)}개")
+    # 1. 문서 가져오기 (Limit sample size)
+    print(f"📄 문서 샘플링 Limit: {limit}, Offset: {offset}")
+    
+    try:
+        # Fetch documents using range for offset
+        # limit() applies to the result set size, range() is for pagination
+        res = supabase.table("documents").select("*").range(offset, offset + limit - 1).execute()
+        documents = res.data
+        if not documents:
+            print("❌ 문서가 없습니다.")
+            return []
+        print(f"✅ {len(documents)}개의 문서를 가져왔습니다.")
 
-    # Limit processing for cost control (as user requested to fit budget)
-    # 100 chunks is a good representative sample
-    sample_size = 100
-    df_docs_sample = df_docs.sample(min(len(df_docs), sample_size), random_state=42)
-    print(f"⚠️ 비용 최적화를 위해 {len(df_docs_sample)}개의 문서 청크를 샘플링합니다.")
-
-    # 2. Build Lookups
-    # Company Info
-    ticker_to_info = {}
-    if companies_path.exists():
-        df_comp = pd.read_csv(companies_path)
-        for _, row in df_comp.iterrows():
-            ticker = row.get("ticker")
-            if ticker:
-                ticker_to_info[ticker] = {
-                    "korean_name": row.get("korean_name", ticker),
-                    "sector": row.get("sector", ""),
-                    "industry": row.get("industry", ""),
-                }
-
-    # Financials (Latest year only for simplicity)
-    company_id_to_ticker = {}  # Need to map UUIDs if annual_reports uses company_id
-    # Assuming annual_reports links via company_id, we need to map that.
-    # Looking at CSVs, companies_rows has 'id' and 'ticker'. annual_reports has 'company_id'.
-    id_to_ticker = {}
-    if companies_path.exists():
-        df_comp = pd.read_csv(companies_path)
-        id_to_ticker = dict(zip(df_comp["id"], df_comp["ticker"]))
-
-    ticker_to_financials = {}
-    if financials_path.exists():
-        df_fin = pd.read_csv(financials_path)
-        # Sort by fiscal_year desc to get latest
-        df_fin = df_fin.sort_values("fiscal_year", ascending=False)
-        for _, row in df_fin.iterrows():
-            cid = row.get("company_id")
-            ticker = id_to_ticker.get(cid)
-            if ticker and ticker not in ticker_to_financials:  # Only store latest
-                ticker_to_financials[ticker] = {
-                    "revenue": row.get("revenue"),
-                    "net_income": row.get("net_income"),
-                    "year": row.get("fiscal_year"),
-                }
-
-    # Relationships
-    ticker_to_relationships = {}
-    if relationships_path.exists():
-        df_rel = pd.read_csv(relationships_path)
-        for _, row in df_rel.iterrows():
-            src = row.get("source_ticker")
-            target = row.get("target_company")  # Use name for readability
-            rtype = row.get("relationship_type")
-
+        # 2. 관련 데이터 가져오기 (배치 처리가 좋지만 간단히 개별 조회 or 전체 조회)
+        # 전체 회사 정보 가져오기 (캐싱)
+        print("🏢 회사 정보 로딩...")
+        res_comp = supabase.table("companies").select("*").execute()
+        companies = {c['ticker']: c for c in res_comp.data}
+        
+        # 관계 정보 (Top relations)
+        # 모든 관계를 가져오기엔 무거울 수 있으니 필요한 티커에 대해서만 추후 조회하거나
+        # 지금은 간단히 최근 관계 1000개를 가져와서 매핑
+        print("🕸️ 관계 정보 로딩...")
+        res_rel = supabase.table("company_relationships").select("*").limit(2000).execute()
+        relationships = {}
+        for r in res_rel.data:
+            src = r.get('source_ticker')
             if src:
-                if src not in ticker_to_relationships:
-                    ticker_to_relationships[src] = []
-                if len(ticker_to_relationships[src]) < 5:  # Limit to top 5
-                    ticker_to_relationships[src].append(f"{rtype}: {target}")
+                if src not in relationships:
+                    relationships[src] = []
+                relationships[src].append(f"{r.get('relationship_type')}: {r.get('target_company')}")
+        
+    except Exception as e:
+        print(f"❌ 데이터 조회 실패: {e}")
+        return []
 
-    # 3. Enrich Documents
+    # 3. 문서 Enrich (Context 추가)
     langchain_docs = []
 
-    for _, row in df_docs_sample.iterrows():
-        content = row["content"]
-        try:
-            metadata = (
-                json.loads(row["metadata"]) if isinstance(row["metadata"], str) else {}
-            )
-        except:
-            metadata = {}
-
-        ticker = metadata.get("ticker", "UNKNOWN")
-
-        # Build Context String
+    for doc_data in documents:
+        content = doc_data.get("content", "")
+        metadata = doc_data.get("metadata") or {}
+        
+        ticker = metadata.get("ticker")
+        
         context_parts = []
-
-        # Company Info
-        info = ticker_to_info.get(ticker, {})
-        k_name = info.get("korean_name", ticker)
-        context_parts.append(f"Target Company: {k_name} ({ticker})")
-        if info.get("sector"):
-            context_parts.append(
-                f"Sector: {info['sector']}, Industry: {info['industry']}"
-            )
-
-        # Financials
-        fin = ticker_to_financials.get(ticker)
-        if fin:
-            context_parts.append(
-                f"Financials ({fin['year']}): Revenue ${fin['revenue']}, Net Income ${fin['net_income']}"
-            )
-
-        # Relationships
-        rels = ticker_to_relationships.get(ticker)
-        if rels:
-            context_parts.append("Relationships: " + ", ".join(rels))
-
-        # Combine
-        enrichment = "\n".join(context_parts) + "\n\n"
+        
+        # 회사 정보 추가
+        if ticker and ticker in companies:
+            comp = companies[ticker]
+            k_name = comp.get("company_name", ticker) # company_name이 한국어라고 가정
+            context_parts.append(f"Target Company: {k_name} ({ticker})")
+            if comp.get("sector"):
+                context_parts.append(f"Sector: {comp['sector']}")
+        
+        # 관계 정보 추가
+        if ticker and ticker in relationships:
+            # 상위 5개만
+            top_rels = relationships[ticker][:5]
+            context_parts.append("Relationships: " + ", ".join(top_rels))
+            
+        # Context 결합
+        enrichment = "\n".join(context_parts) + "\n\n" if context_parts else ""
         full_content = enrichment + content
-
-        # Add metadata
-        metadata["korean_name"] = k_name
+        
+        # Metadata 업데이트
+        if ticker in companies:
+             metadata["korean_name"] = companies[ticker].get("company_name", ticker)
 
         doc = Document(page_content=full_content, metadata=metadata)
         langchain_docs.append(doc)
-
+    
     return langchain_docs
 
 
@@ -251,23 +211,22 @@ def translate_to_korean(df, llm):
     return df
 
 
-def generate_dataset():
-    print("🚀 데이터셋 생성을 시작합니다 (Enhanced Context)...")
+def generate_dataset(limit=50, testset_size=20, offset=0, output_name="evaluation_dataset.csv"):
+    print(f"🚀 데이터셋 생성 시작 (Limit: {limit}, Size: {testset_size}, Offset: {offset}, Out: {output_name})...")
 
-    documents = load_documents_with_context()
+    # 1. 문서 로드 (Offset/Limit 적용)
+    documents = load_documents_with_context(limit=limit, offset=offset)
     if not documents:
         print("❌ 로드된 문서가 없습니다.")
         return
 
     # Generator 설정
     try:
-        # User confirmed 'gpt-4.1-mini' is the correct model name for their environment.
         model_name = "gpt-4.1-mini"
         print(f"🤖 사용 모델: {model_name}")
 
         generator_llm = ChatOpenAI(model=model_name)
         critic_llm = ChatOpenAI(model=model_name)
-        # User requested specific embedding model
         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
         # Ragas Wrapper
@@ -290,9 +249,6 @@ def generate_dataset():
         syn_multi.embeddings = embeddings_wrapped
         syn_abstract.embeddings = embeddings_wrapped
 
-        # Generate English testset
-        testset_size = 50
-
         testset = generator.generate_with_langchain_docs(
             documents,
             testset_size=testset_size,
@@ -304,15 +260,14 @@ def generate_dataset():
         )
 
         # 저장 준비
-        project_root = Path(__file__).parent.parent.parent
+        project_root = Path(__file__).resolve().parent.parent
         output_dir = project_root / "data"
         output_dir.mkdir(exist_ok=True)
-        output_path = output_dir / "evaluation_dataset.csv"
+        output_path = output_dir / output_name
 
         df = testset.to_pandas()
 
-        # Rename columns if Ragas used the new naming convention (user_input -> question, etc.)
-        # This ensures the rest of the pipeline works smoothly.
+        # Rename columns 
         column_mapping = {
             "user_input": "question",
             "reference": "ground_truth",
@@ -322,25 +277,33 @@ def generate_dataset():
             columns={k: v for k, v in column_mapping.items() if k in df.columns}
         )
 
-        # Save raw english first to be safe
-        raw_output_path = output_dir / "evaluation_dataset_raw_english.csv"
-        df.to_csv(raw_output_path, index=False)
-        print(f"💾 영문 데이터셋 임시 저장 완료: {raw_output_path}")
-
         # Translate to Korean
         df = translate_to_korean(df, generator_llm)
 
         df.to_csv(output_path, index=False)
-        print(f"✅ 데이터셋 생성 및 번역 완료: {output_path}")
+        print(f"✅ 데이터셋 저장 완료: {output_path}")
         print(f"📊 생성된 데이터 개수: {len(df)}")
-        print(df[["question", "ground_truth"]].head())
 
     except Exception as e:
         print(f"❌ 데이터셋 생성 중 오류 발생: {e}")
         import traceback
-
         traceback.print_exc()
 
 
 if __name__ == "__main__":
-    generate_dataset()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate evaluation dataset")
+    parser.add_argument("--limit", type=int, default=50, help="Number of documents to load")
+    parser.add_argument("--size", type=int, default=10, help="Size of testset to generate")
+    parser.add_argument("--offset", type=int, default=0, help="Offset for document loading")
+    parser.add_argument("--output", type=str, default="evaluation_dataset.csv", help="Output filename")
+    
+    args = parser.parse_args()
+    
+    generate_dataset(
+        limit=args.limit, 
+        testset_size=args.size, 
+        offset=args.offset, 
+        output_name=args.output
+    )

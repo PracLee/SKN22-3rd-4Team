@@ -27,7 +27,8 @@ class AnalystChatbot(RAGBase):
 
     def __init__(self):
         """Initialize chatbot inheriting from RAGBase"""
-        super().__init__(model_name="gpt-4.1-mini")
+        self.model_name = "gpt-4.1-mini"
+        super().__init__(model_name=self.model_name)
 
         # Exchange rate client (Special for Chatbot)
         self.exchange_client = None
@@ -104,11 +105,38 @@ class AnalystChatbot(RAGBase):
                 logger.error(f"GraphRAG find_relationships failed: {e}")
         return []
 
+        return []
+
+    def _generate_english_search_query(self, user_query: str) -> str:
+        """Translate Korean query to English optimized search query using LLM"""
+        try:
+            # Simple keyword extraction & translation
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a search expert. Translate the user's Korean financial question into a precise English search query for finding relevant information in 10-K/10-Q reports. Output ONLY the English query.",
+                },
+                {"role": "user", "content": user_query},
+            ]
+            response = self.openai_client.chat.completions.create(
+                model=self.model_name, messages=messages, temperature=0
+            )
+            eng_query = response.choices[0].message.content.strip()
+            logger.info(f"🇺🇸 Translated Query: '{user_query}' -> '{eng_query}'")
+            return eng_query
+        except Exception as e:
+            logger.warning(f"Query translation failed: {e}")
+            return user_query  # Fallback to original
+
     def _build_context(self, query: str, ticker: Optional[str] = None) -> str:
         """Build context from RAG search, company data, and real-time Finnhub data (Optimized with Parallel Fetch)"""
+        
+        # 0. Translate Query for Better Retrieval (Korean -> English)
+        search_query = self._generate_english_search_query(query)
+
         if not ticker:
             # Ticker가 없는 경우 문서 검색만 수행
-            docs = self._search_documents(query, limit=5)
+            docs = self._search_documents(search_query, limit=5)
             if not docs:
                 return "추가 컨텍스트 없음"
 
@@ -121,9 +149,9 @@ class AnalystChatbot(RAGBase):
         if not self.data_retriever:
             return "데이터 수집 모듈 미작동"
 
-        logger.info(f"Building context for query: {query}, ticker: {ticker}")
+        logger.info(f"Building context for query: {query} (Search: {search_query}), ticker: {ticker}")
         dataset_context = self.data_retriever.get_company_context_parallel(
-            ticker, include_finnhub=True, include_rag=True, query=query
+            ticker, include_finnhub=True, include_rag=True, query=search_query
         )
         all_data = dataset_context
 
@@ -138,14 +166,21 @@ class AnalystChatbot(RAGBase):
             )
             context_parts.append(f"- 시가총액: {company.get('market_cap', 'N/A')}")
 
-        # 2. Relationships
+        # 2. Relationships (GraphRAG)
         rels = all_data.get("relationships", [])
         if rels:
-            context_parts.append(f"\n## 기업 관계 ({len(rels)}개)")
-            for rel in rels[:5]:
-                context_parts.append(
-                    f"- {rel.get('source_company')} → [{rel.get('relationship_type', '관련')}] → {rel.get('target_company')}"
-                )
+            context_parts.append(f"\n## 🕸️ 기업 관계망 및 공급망 ({len(rels)}개 연결)")
+            for rel in rels[:10]:  # Show more relationships (up to 10)
+                source = rel.get('source_company')
+                target = rel.get('target_company')
+                rtype = rel.get('relationship_type', '관련')
+                desc = rel.get('description', '')
+                
+                # 관계 설명이 있으면 추가
+                rel_str = f"- **{source}** → [{rtype}] → **{target}**"
+                if desc:
+                    rel_str += f": {desc}"
+                context_parts.append(rel_str)
 
         # 3. Finnhub Real-time
         fh = all_data.get("finnhub", {})

@@ -11,8 +11,10 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 # .parent -> 03_test_report
 # .parent.parent -> SKN22-3rd-4Team
 root_path = Path(__file__).resolve().parent.parent
-sys.path.append(str(root_path))
-sys.path.append(str(root_path / "src"))
+# Add project root to path
+root_path = Path(__file__).resolve().parent.parent
+if str(root_path) not in sys.path:
+    sys.path.insert(0, str(root_path))
 
 from src.rag.analyst_chat import AnalystChatbot
 
@@ -40,8 +42,12 @@ def evaluate_rag():
     print("🧪 RAG 성능 평가를 시작합니다 (Ragas Metrics)...")
 
     # 1. 데이터셋 로드
-    dataset_path = "data/evaluation_dataset.csv"
-    if not os.path.exists(dataset_path):
+    # 1. 데이터셋 로드
+    # evaluate_rag.py는 03_test_report 폴더 안에 있음
+    current_dir = Path(__file__).resolve().parent
+    dataset_path = current_dir / "data" / "evaluation_dataset.csv"
+    
+    if not dataset_path.exists():
         print(f"❌ 데이터셋을 찾을 수 없습니다: {dataset_path}")
         print("💡 먼저 generate_dataset.py를 실행하여 데이터셋을 생성해주세요.")
         return
